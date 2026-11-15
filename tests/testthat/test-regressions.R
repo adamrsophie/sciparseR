@@ -44,6 +44,24 @@ test_that("abbreviations, age ranges and other clauses are not misread", {
   expect_true(all(is.na(o$outcome)))
 })
 
+test_that("numbers without interval or p-value far from a measure are not estimates", {
+  expect_equal(nrow(results_of(jats_doc("Hazard ratios were similar in a sensitivity analysis of 118 patients."))), 0)
+  o <- results_of(jats_doc("The hazard ratio was 0.80 (95% CI 0.60 to 1.05) and 12 (10.0%) patients died."))
+  expect_equal(sum(o$statistic == "estimate"), 1)
+  o <- results_of(jats_doc("Hazard ratios were estimated with Cox models, and a two-sided P value of 0.05 was considered significant."))
+  expect_false(any(o$statistic == "estimate"))
+})
+
+test_that("declared arms keep plain columns from becoming arms", {
+  d <- jats_doc("x", extra = paste0('<table-wrap id="t1"><label>Table 2</label><caption><p>Outcomes</p></caption><table><thead>',
+    '<tr><th>Outcome</th><th>N</th><th>Drug A</th><th>Placebo</th><th>Hazard ratio (95% CI)</th></tr></thead><tbody>',
+    '<tr><td>Death, n (%)</td><td>238</td><td>12 (10.0)</td><td>20 (16.9)</td><td>0.60 (0.30 to 0.90)</td></tr></tbody></table></table-wrap>'))
+  o <- results_of(d)
+  expect_false(any(o$arm %in% "N"))
+  est <- o[o$statistic == "estimate", ]
+  expect_identical(c(est$arm, est$comparator), c("Drug A", "placebo"))
+})
+
 test_that("mean values in one sentence get their own arms", {
   o <- results_of(jats_doc(
     "Systolic blood pressure decreased by 12.4 ± 8.1 mm Hg in the Drug A group and 5.2 ± 7.9 mm Hg in the placebo group."))

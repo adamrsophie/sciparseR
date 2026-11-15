@@ -203,8 +203,8 @@ sc_citations <- function(doc) {
 sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4) {
   check_document(doc)
   if (doc$source$format != "pdf") abort("Cropping needs a PDF document.")
-  if (!is_installed("png")) abort("The png package is needed to write PNG files.")
   check_source_pdf(doc)
+  if (!is_installed("png")) abort("The png package is needed to write PNG files.")
   loc <- sc_source(doc, id)
   if (is.na(loc$x0[1])) abort("Element ", id, " has no bounding box.")
   pg <- doc$pages[doc$pages$page == loc$page[1], ]
@@ -248,8 +248,8 @@ sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4) {
 sc_highlight <- function(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d") {
   check_document(doc)
   if (doc$source$format != "pdf") abort("Highlighting needs a PDF document.")
-  if (!is_installed("png")) abort("The png package is needed to read and write PNG files.")
   check_source_pdf(doc)
+  if (!is_installed("png")) abort("The png package is needed to read and write PNG files.")
   if (inherits(x, "sc_extraction") && !identical(x$doc_id %||% doc$doc_id, doc$doc_id)) {
     abort("The extraction was made from a different document.")
   }

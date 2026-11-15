@@ -235,6 +235,7 @@ rule_text_statistics <- function(col, units, arms) {
         fo <- regmatches(win, regexec("^\\s+for (?:the )?([A-Za-z][A-Za-z -]{1,60}?) (?:was|were|of|is|with|in|among)\\b", win, perl = TRUE))[[1]]
         ecs <- attr(em, "capture.start")[1]
         ecl <- attr(em, "capture.length")[1]
+        iter <- 0L
         # several estimates may follow one measure name: "0.80 (95% CI ...)
         # at 6 months and 0.70 (95% CI ...) at 12 months"
         repeat {
@@ -247,7 +248,11 @@ rule_text_statistics <- function(col, units, arms) {
           cm <- regexpr(ci_re, rest, perl = TRUE)
           has_ci <- cm > 0 && grepl("\\bCI\\b|\\bCrI\\b|(?i:confidence interval|credible interval)|^\\s*[(,;]\\s*(?:[0-9]{2}%\\s*)?[-+\u2212]?[0-9.]", substr(rest, 1, attr(cm, "match.length")), perl = TRUE)
           pm <- regexpr(p_re, rest, perl = TRUE)
-          if (abbr && !has_ci && pm < 0) break
+          iter <- iter + 1L
+          # a number far from the measure name ("hazard ratios were similar
+          # in an analysis of 118 patients"), a second estimate, or one after
+          # an abbreviation counts only with an interval or a p-value
+          if ((abbr || ecs > 31L || iter > 1L) && !has_ci && pm < 0) break
           cx <- value_context(st, est_pos, clauses, outcome, arms)
           # with several estimates after one measure name, each takes the
           # time point written right after it
@@ -546,11 +551,13 @@ rule_table_statistics <- function(col, doc, arms) {
     roles[[1]] <- list(role = "label")
     # when one column is an arm by keyword ("Placebo") and the arms were not
     # declared, the other plain columns are arms too, named by their header
-    if (any(vapply(roles, function(r) r$role == "arm", logical(1)))) {
+    declared_hit <- length(arms) && any(vapply(hdr, function(h) !is.na(h) && !is.na(match_arm(h, arms)), logical(1)))
+    if (!declared_hit && any(vapply(roles, function(r) r$role == "arm", logical(1)))) {
       for (j in seq_along(roles)[-1]) {
         if (roles[[j]]$role != "unknown" || is.na(hdr[j])) next
         last <- trimws(utils::tail(strsplit(hdr[j], "|", fixed = TRUE)[[1]], 1))
         if (grepl("(?i)\\b(difference|ratio|CI|p|value|total|overall|all)\\b", last, perl = TRUE)) next
+        if (grepl("(?i)^(n|no\\.?|number|units?|events?|reference|ref\\.?|mean|sd|se|median|iqr|range)$", last, perl = TRUE)) next
         roles[[j]] <- list(role = "arm", arm = arm_name(last), n = NA_character_, timepoint = header_timepoint(strsplit(hdr[j], "|", fixed = TRUE)[[1]]))
       }
     }

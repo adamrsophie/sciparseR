@@ -43,7 +43,7 @@ parse_jats <- function(path, cfg, log) {
     })
   # an entity the parser cannot resolve disappears from the text, which can
   # drop a minus sign: say so in the document warnings
-  for (u in unique(undefined)) log$add("parse", "xml_entity", paste0("Unknown XML entity replaced by U+FFFD: ", trimws(u)))
+  for (u in unique(undefined)) log$add("parse", "xml_entity", paste0("XML entity not resolved (not a known named entity or a simple internal declaration) and replaced by U+FFFD: ", trimws(u)))
   x <- xml2::xml_ns_strip(x)
   art <- jats_root(x)
   meta <- jats_metadata(art)
@@ -544,10 +544,11 @@ html_entities <- c(
 
 expand_entities <- function(txt) {
   ents <- html_entities[!is.na(html_entities)]
-  decl <- regmatches(txt, gregexpr("<!ENTITY\\s+([A-Za-z][A-Za-z0-9._-]*)\\s+\"([^\"&<%]*)\"\\s*>", txt, perl = TRUE))[[1]]
+  # simple internal declarations, in double or single quotes
+  decl <- regmatches(txt, gregexpr("<!ENTITY\\s+([A-Za-z][A-Za-z0-9._-]*)\\s+(\"[^\"&<%]*\"|'[^'&<%]*')\\s*>", txt, perl = TRUE))[[1]]
   if (length(decl)) {
     nm <- sub("<!ENTITY\\s+([A-Za-z][A-Za-z0-9._-]*).*", "\\1", decl, perl = TRUE)
-    val <- sub(".*\"([^\"]*)\".*", "\\1", decl, perl = TRUE)
+    val <- sub("^<!ENTITY\\s+[^\\s]+\\s+[\"'](.*)[\"']\\s*>$", "\\1", decl, perl = TRUE)
     ents[nm] <- val
   }
   for (nm in names(ents)) {
