@@ -35,88 +35,57 @@ apply_ocr <- function(parts, path, cfg, log) {
     return(parts)
   }
   scale <- 72 / cfg$ocr_dpi
-  new_spans <- new_blocks <- list()
+  ws <- list()
+  notes <- list()
   for (k in seq_along(todo)) {
     p <- todo[k]
     d <- ocr[[k]]
+    d <- d[nzchar(trimws(d$word)), , drop = FALSE]
     if (!NROW(d)) {
       pages$ocr_status[pages$page == p] <- "applied_no_text"
       next
     }
     bb <- do.call(rbind, lapply(strsplit(d$bbox, ","), as.numeric))
-    w <- data.frame(page = p, stream_order = seq_len(nrow(d)), x0 = bb[, 1] * scale,
-                    y0 = bb[, 2] * scale, x1 = bb[, 3] * scale, y1 = bb[, 4] * scale,
-                    text = enc2utf8(d$word), space = TRUE, font_name = NA_character_,
-                    font_size = (bb[, 4] - bb[, 2]) * scale, bold = FALSE, italic = FALSE,
-                    stringsAsFactors = FALSE)
-    w$span_id <- make_id("o", p, seq_len(nrow(w)))
-    w$confidence <- d$confidence
-    bl <- build_lines(w, cfg)
-    lines <- bl$lines
-    ub <- data.frame(id = paste0("l", lines$segment), x0 = lines$x0, y0 = lines$y0,
-                     x1 = lines$x1, y1 = lines$y1, stringsAsFactors = FALSE)
-    ord <- xy_order(ub, cfg$column_gap * median_or(lines$font_size, 10))
-    seg_order <- as.integer(sub("^l", "", ord$id))
-    lines <- lines[match(seg_order, lines$segment), , drop = FALSE]
-    lines$leaf <- ord$leaf
-    # group consecutive lines into paragraphs by vertical gap
-    gap <- c(Inf, lines$y0[-1] - lines$y1[-nrow(lines)])
-    grp <- cumsum(gap > 0.8 * median_or(lines$font_size, 10) | c(TRUE, diff(lines$leaf) != 0))
-    for (g in unique(grp)) {
-      ls <- lines[grp == g, , drop = FALSE]
-      bid <- make_id("ob", p, g)
-      b <- bbox_union(ls$x0, ls$y0, ls$x1, ls$y1)
-      new_blocks[[length(new_blocks) + 1L]] <- list(
-        block_id = bid, page = p, type = "paragraph", x0 = b[1], y0 = b[2], x1 = b[3], y1 = b[4],
-        text_raw = paste(ls$text, collapse = "\n"), text = normalize_text(paste(ls$text, collapse = " ")),
-        column = ls$leaf[1], method = "ocr_tesseract+layout_xycut", status = "ocr")
-      bl$words$block_id[bl$words$segment %in% ls$segment] <- bid
-    }
-    sw <- bl$words
-    new_spans[[length(new_spans) + 1L]] <- data.frame(
-      span_id = sw$span_id, page = p, x0 = sw$x0, y0 = sw$y0, x1 = sw$x1, y1 = sw$y1,
-      text = sw$text, font_size = NA_real_, superscript = FALSE,
-      block_id = sw$block_id, source = "ocr_tesseract", confidence = sw$confidence,
-      stringsAsFactors = FALSE)
+    ws[[length(ws) + 1L]] <- data.frame(
+      page = p, stream_order = seq_len(nrow(d)), x0 = bb[, 1] * scale, y0 = bb[, 2] * scale,
+      x1 = bb[, 3] * scale, y1 = bb[, 4] * scale, text = enc2utf8(d$word), space = TRUE,
+      font_name = NA_character_, font_size = (bb[, 4] - bb[, 2]) * scale, bold = FALSE, italic = FALSE,
+      source = "ocr_tesseract", confidence = d$confidence, stringsAsFactors = FALSE)
     pages$ocr_status[pages$page == p] <- "applied"
-    if (stats::median(d$confidence) < 60) {
-      log$add("ocr", "ocr_low_confidence",
-              sprintf("Median OCR word confidence %.0f is low; check the recognized text.", stats::median(d$confidence)), p)
+    med <- stats::median(d$confidence)
+    if (med < 60) {
+      notes[[length(notes) + 1L]] <- list("ocr", "ocr_low_confidence",
+        sprintf("Median OCR word confidence %.0f is low; check the recognized text.", med), p)
     }
-    log$add("ocr", "ocr_applied",
-            sprintf("OCR applied (tesseract, language %s, %d dpi); median word confidence %.0f.",
-                    cfg$ocr_language, cfg$ocr_dpi, stats::median(d$confidence)), p)
+    notes[[length(notes) + 1L]] <- list("ocr", "ocr_applied",
+      sprintf("OCR applied (tesseract, language %s, %d dpi); median word confidence %.0f.",
+              cfg$ocr_language, cfg$ocr_dpi, med), p)
   }
-  ob <- bind_entity(lapply(new_blocks, as.data.frame, stringsAsFactors = FALSE), "blocks")
-  if (nrow(ob)) {
-    if (cfg$ocr == "always") {
-      # everything built from the replaced text layer goes: blocks, spans,
-      # lines, tables, cells, captions, figures and footnotes of those pages
-      done <- unique(ob$page)
-      for (e in setdiff(names(parts), "pages")) {
-        v <- parts[[e]]
-        if (is.data.frame(v) && "page" %in% names(v)) parts[[e]] <- v[!v$page %in% done, , drop = FALSE]
-      }
-      keep_tab <- parts$tables$table_id
-      if (is.data.frame(parts$cells) && "table_id" %in% names(parts$cells)) parts$cells <- parts$cells[parts$cells$table_id %in% keep_tab, , drop = FALSE]
-      if (is.data.frame(parts$captions) && nrow(parts$captions)) {
-        parts$captions <- parts$captions[parts$captions$block_id %in% parts$blocks$block_id, , drop = FALSE]
-      }
+  if (!length(ws)) {
+    parts$pages <- pages
+    return(parts)
+  }
+  # parse again with the OCR words in place of the text layer of those
+  # pages, so headings, tables, figures and sections are found there too
+  log2 <- new_log()
+  out <- parse_pdf(path, cfg, log2, ocr_words = do.call(rbind, ws))
+  log$rows <- log2$rows
+  for (n in notes) log$add(n[[1]], n[[2]], n[[3]], n[[4]])
+  # elements built from OCR words say so in their method
+  ocr_pages <- unique(do.call(rbind, ws)$page)
+  for (e in names(out)) {
+    v <- out[[e]]
+    if (is.data.frame(v) && all(c("page", "method") %in% names(v))) {
+      ix <- v$page %in% ocr_pages & !is.na(v$method)
+      v$method[ix] <- paste0("ocr_tesseract+", v$method[ix])
+      out[[e]] <- v
     }
-    all <- rbind(as_entity(parts$blocks, "blocks"), ob)
-    all$tmp_order <- ifelse(is.na(all$reading_order), Inf, all$reading_order)
-    all <- all[order(all$page, all$tmp_order, all$y0), , drop = FALSE]
-    all$reading_order <- seq_len(nrow(all))
-    all$tmp_order <- NULL
-    # sections are rebuilt so that none points to a removed block and OCR
-    # paragraphs join the section of the heading before them; OCR pages
-    # get paragraphs only (no headings, tables or figures)
-    sec <- build_sections(all)
-    parts$blocks <- sec$blocks
-    parts$sections <- sec$sections
-    parts$spans <- bind_entity(list(parts$spans, bind_entity(new_spans, "spans")), "spans")
   }
-  pages$has_text_layer <- pages$has_text_layer
-  parts$pages <- pages
-  parts
+  if (nrow(out$cells)) {
+    on <- out$cells$table_id %in% out$tables$table_id[out$tables$page %in% ocr_pages]
+    out$cells$status[on] <- paste0("ocr_", out$cells$status[on])
+  }
+  keep <- c("has_text_layer", "image_only", "ink_ratio", "ocr_status")
+  out$pages[keep] <- pages[match(out$pages$page, pages$page), keep]
+  out
 }

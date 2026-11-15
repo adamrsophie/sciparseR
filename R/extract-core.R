@@ -212,3 +212,20 @@ span_run <- function(span_text, value_text, block_text, char_start) {
       grepl("^[-+\u2212]$", trimws(normalize_text(span_text[first - 1L])))) first <- first - 1L
   first:keep[starts + k - 1L]
 }
+
+# A population restriction stated with the value: "among patients with
+# diabetes", "in women aged 65 years or older", "in the subgroup of
+# current smokers". A bare "in 120 patients" or an analysis set is not one.
+population_re <- paste0(
+  "(?i)\\b(?:in|among) (?:the )?(?:subgroup|subset|stratum) of ([a-z][^,;:()]{2,60}?)(?=\\s*(?:[,;:()]|$|\\bthe\\b|\\bwas\\b|\\bwere\\b))|",
+  "(?i)\\b(?:in|among) ((?:patients|participants|subjects|women|men|children|adults|infants|those|individuals|people)",
+  " (?:with|without|aged|who|older|younger|over|under)\\b[^,;:()]{2,60}?)(?=\\s*(?:[,;:()]|$|\\bthe\\b|\\bwas\\b|\\bwere\\b|\\band the\\b))")
+
+find_population <- function(text) {
+  if (is.na(text)) return(NA_character_)
+  m <- regmatches(text, regexec(population_re, text, perl = TRUE))[[1]]
+  if (!length(m)) return(NA_character_)
+  v <- m[-1][nzchar(m[-1])]
+  if (!length(v)) return(NA_character_)
+  trimws(tolower(v[1]))
+}

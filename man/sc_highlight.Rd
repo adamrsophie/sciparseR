@@ -4,7 +4,14 @@
 \alias{sc_highlight}
 \title{Highlight evidence on rendered pages}
 \usage{
-sc_highlight(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d")
+sc_highlight(
+  doc,
+  x,
+  dir = tempdir(),
+  dpi = 100,
+  color = "#d7263d",
+  path = NULL
+)
 }
 \arguments{
 \item{doc}{An \code{sc_document} parsed from a PDF.}
@@ -17,6 +24,10 @@ sc_highlight(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d")
 \item{dpi}{Rendering resolution.}
 
 \item{color}{Box color.}
+
+\item{path}{Path of the source PDF, when the document does not hold it
+(a document read with \code{\link[=sc_read_json]{sc_read_json()}}) or the file has moved. The
+checksum must still match.}
 }
 \value{
 The paths of the PNG files, invisibly.

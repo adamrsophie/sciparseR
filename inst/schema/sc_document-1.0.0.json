@@ -3,7 +3,25 @@
   "$id": "https://adamrsophie.github.io/sciparseR/schema/sc_document-1.0.0.json",
   "title": "sciparseR sc_document export, schema version 1.0.0",
   "type": "object",
-  "required": ["object_type", "schema_version", "pages", "spans", "lines", "blocks", "sections", "tables", "cells", "figures", "equations", "captions", "footnotes", "references", "citations", "supplementary", "warnings"],
+  "required": [
+    "object_type",
+    "schema_version",
+    "pages",
+    "spans",
+    "lines",
+    "blocks",
+    "sections",
+    "tables",
+    "cells",
+    "figures",
+    "equations",
+    "captions",
+    "footnotes",
+    "references",
+    "citations",
+    "supplementary",
+    "warnings"
+  ],
   "properties": {
     "object_type": {
       "const": "sc_document"
@@ -104,6 +122,24 @@
           "n_columns": {
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "media_x0": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "media_y0": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rotation_source": {
+            "type": [
+              "string",
               "null"
             ]
           }

@@ -185,11 +185,11 @@ sc_observations <- function(x, wide = FALSE) {
   if (!inherits(x, "sc_extraction")) abort("`x` must be an sc_extraction.")
   r <- x$records[!is.na(x$records$observation_id) & x$records$status != "superseded", , drop = FALSE]
   keep <- c("observation_id", "record_id", "field", "outcome", "arm", "comparator", "timepoint",
-            "analysis_set", "effect_measure", "adjusted", "statistic", "value", "value_num", "unit",
+            "analysis_set", "population", "effect_measure", "adjusted", "statistic", "value", "value_num", "unit",
             "status", "data_origin", "binding", "evidence_id")
   if (!wide) return(r[, keep, drop = FALSE])
   ctx <- c("observation_id", "field", "outcome", "arm", "comparator", "timepoint", "analysis_set",
-           "effect_measure", "adjusted", "unit", "binding")
+           "population", "effect_measure", "adjusted", "unit", "binding")
   ids <- unique(r$observation_id)
   if (!length(ids)) {
     out <- r[0, ctx, drop = FALSE]

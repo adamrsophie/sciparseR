@@ -4,7 +4,7 @@
 \alias{sc_figure_crop}
 \title{Render a figure or region to PNG}
 \usage{
-sc_figure_crop(doc, id, file, dpi = 150, padding = 4)
+sc_figure_crop(doc, id, file, dpi = 150, padding = 4, path = NULL)
 }
 \arguments{
 \item{doc}{An \code{sc_document} parsed from a PDF.}
@@ -16,6 +16,10 @@ sc_figure_crop(doc, id, file, dpi = 150, padding = 4)
 \item{dpi}{Rendering resolution.}
 
 \item{padding}{Padding around the box in points.}
+
+\item{path}{Path of the source PDF, when the document does not hold it
+(a document read with \code{\link[=sc_read_json]{sc_read_json()}}) or the file has moved. The
+checksum must still match.}
 }
 \value{
 The path of the PNG file, invisibly.

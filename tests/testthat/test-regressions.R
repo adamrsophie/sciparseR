@@ -148,6 +148,9 @@ test_that("JSON read restores metadata and rejects bad ids", {
   expect_error(sc_read_json(g), "doc_id|identifier")
   d2 <- sc_read_json(f)
   expect_error(sc_highlight(d2, sc_extract(d2, "trial_details")), "source path")
+  skip_if_not_installed("png")
+  hl <- sc_highlight(d2, sc_extract(d2, "trial_details"), dir = tempfile(), dpi = 30, path = fixture("trial_tables.pdf"))
+  expect_true(all(file.exists(hl)))
 })
 
 test_that("derivation is idempotent and corrections supersede derived values", {

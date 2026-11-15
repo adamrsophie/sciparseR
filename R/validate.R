@@ -2,7 +2,11 @@
 #'
 #' Runs deterministic scientific checks over an `sc_extraction` and records
 #' each finding in `x$validation`. Record level `validation_status` becomes
-#' `"pass"`, `"warning"`, `"fail"` or `"exception"`.
+#' `"pass"`, `"warning"`, `"fail"` or `"exception"`. A reported value that
+#' fails a rule of severity error (and has no exception) gets status
+#' `"inconsistent"`: it is kept, shown in the review queue and not used by
+#' [sc_derive()]. Validating again restores `"reported"` when the failure is
+#' gone.
 #'
 #' Rules:
 #' * `count_nonnegative`: counts and events are not negative, denominators
@@ -48,6 +52,8 @@
 #' @export
 sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
   if (!inherits(x, "sc_extraction")) abort("`x` must be an sc_extraction.")
+  # every run starts from the reported values, not from an earlier verdict
+  x$records$status[x$records$status == "inconsistent"] <- "reported"
   r <- x$records
   # derived values are checked through their inputs, not as reported values
   live <- r$status != "superseded" & r$data_origin != "derived"
@@ -220,6 +226,13 @@ sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
   v <- apply_exceptions(v, exceptions)
   x$validation <- v
   x$records$validation_status <- record_status(x$records, v)
+  # a reported value that fails a hard rule (an error, not excepted) is
+  # inconsistent: it stays in the records but is not used by sc_derive();
+  # validating again after a correction can make it reported again
+  hard <- v$record_ids[v$severity == "error" & v$result == "fail"]
+  bad <- unique(unlist(strsplit(hard, ",", fixed = TRUE)))
+  mark <- x$records$record_id %in% bad & x$records$status == "reported"
+  x$records$status[mark] <- "inconsistent"
   x
 }
 
@@ -246,7 +259,9 @@ conflict_findings <- function(r) {
       as_eq <- identical(res$analysis_set[i], res$analysis_set[j])
       tp_wild <- is.na(res$timepoint[i]) || is.na(res$timepoint[j])
       as_wild <- is.na(res$analysis_set[i]) || is.na(res$analysis_set[j])
-      if (!(tp_eq || tp_wild) || !(as_eq || as_wild)) next
+      po_eq <- identical(res$population[i], res$population[j])
+      po_wild <- is.na(res$population[i]) || is.na(res$population[j])
+      if (!(tp_eq || tp_wild) || !(as_eq || as_wild) || !(po_eq || po_wild)) next
       # arms: a text estimate often names no arms ("the hazard ratio for
       # death was 0.57"); unknown arms match, but only as a possible conflict
       arm_eq <- identical(res$arm[i], res$arm[j]) && identical(res$comparator[i], res$comparator[j])
@@ -254,7 +269,7 @@ conflict_findings <- function(r) {
       if (!(arm_eq || arm_wild)) next
       # a definite conflict needs the same time point, analysis set and
       # adjustment; an unknown adjustment on one side leaves it possible
-      exact <- tp_eq && as_eq && arm_eq && identical(res$adjusted[i], res$adjusted[j])
+      exact <- tp_eq && as_eq && po_eq && arm_eq && identical(res$adjusted[i], res$adjusted[j])
       key <- paste(sort(c(res$observation_id[i], res$observation_id[j])), collapse = "~")
       if (key %in% done) next
       differ <- abs(res$value_num[i] - res$value_num[j]) > 1e-9
@@ -269,7 +284,7 @@ conflict_findings <- function(r) {
         c(res$record_id[i], res$record_id[j]), res$observation_id[i],
         sprintf("%s for '%s' is %s in the %s and %s in the %s%s", res$statistic[i], res$outcome[i],
                 res$value[i], src[i], res$value[j], src[j],
-                if (exact) "" else " (arms, time point, analysis set or adjustment unbound on one side)"))
+                if (exact) "" else " (arms, time point, analysis set, population or adjustment unbound on one side)"))
     }
   }
   out

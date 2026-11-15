@@ -25,7 +25,8 @@ pdf_words <- function(path) {
       x0 = d$x, y0 = d$y, x1 = d$x + d$width, y1 = d$y + d$height,
       text = enc2utf8(d$text), space = d$space, font_name = font,
       font_size = size, bold = font_is_bold(font %||% ""),
-      italic = font_is_italic(font %||% ""), stringsAsFactors = FALSE)
+      italic = font_is_italic(font %||% ""), source = "pdf_text_layer",
+      confidence = NA_real_, stringsAsFactors = FALSE)
   }
   out <- Filter(Negate(is.null), out)
   if (!length(out)) {
@@ -33,7 +34,8 @@ pdf_words <- function(path) {
                       y0 = double(), x1 = double(), y1 = double(),
                       text = character(), space = logical(),
                       font_name = character(), font_size = double(),
-                      bold = logical(), italic = logical()))
+                      bold = logical(), italic = logical(), source = character(),
+                      confidence = double()))
   }
   w <- do.call(rbind, out)
   w[nzchar(trimws(w$text)), , drop = FALSE]
@@ -42,15 +44,25 @@ pdf_words <- function(path) {
 # Page geometry: media size from pdf_pagesize, displayed size from a tiny
 # rendering (poppler applies /Rotate when rendering). Rotation by 90 or 270
 # degrees swaps the displayed dimensions; the direction is read from the
-# direction in which consecutive words advance. 0 and 180 degrees cannot be
-# told apart this way and are reported as "assumed_0".
+# direction in which consecutive words advance. Without swapped dimensions,
+# words that advance right to left mean the content is upside down (a
+# /Rotate 180 entry or content drawn rotated): rotation 180. Pages with too
+# few words to tell are reported as "assumed_0".
 pdf_page_geometry <- function(path, words) {
   ps <- pdftools::pdf_pagesize(path)
   n <- nrow(ps)
   out <- data.frame(page = seq_len(n), media_width = ps$width,
                     media_height = ps$height, width = ps$width,
                     height = ps$height, rotation = 0L,
-                    rotation_status = "assumed_0", stringsAsFactors = FALSE)
+                    rotation_status = "assumed_0", media_x0 = ps$left,
+                    media_y0 = pmin(ps$top, ps$bottom), rotation_source = "none",
+                    stringsAsFactors = FALSE)
+  # whether the file carries a /Rotate 180 entry: page dictionaries inside
+  # compressed object streams cannot be read this way
+  raw <- tryCatch(readBin(path, "raw", file.size(path)), error = function(e) raw())
+  has <- function(pat) length(grepRaw(pat, raw, fixed = FALSE)) > 0L
+  rot180_entry <- has("/Rotate[[:space:]]*-?180")
+  obj_streams <- has("/ObjStm")
   for (i in seq_len(n)) {
     bm <- tryCatch(pdftools::pdf_render_page(path, page = i, dpi = 4),
                    error = function(e) NULL)
@@ -75,6 +87,14 @@ pdf_page_geometry <- function(path, words) {
         out$rotation[i] <- if (dir > 0) 90L else 270L
         out$rotation_status[i] <- "detected"
       }
+      out$rotation_source[i] <- "rotate_entry"
+    } else {
+      h <- line_direction(words[words$page == i, , drop = FALSE])
+      if (!is.na(h)) {
+        out$rotation[i] <- if (h < 0) 180L else 0L
+        out$rotation_status[i] <- "detected"
+        if (h < 0) out$rotation_source[i] <- if (rot180_entry) "rotate_entry" else if (obj_streams) "unknown" else "content"
+      }
     }
   }
   out
@@ -93,9 +113,28 @@ word_direction <- function(w) {
   if (s == 0) NA_real_ else s
 }
 
+# +1 when words on a line advance left to right, -1 when right to left
+# (upside-down content), NA when undetermined.
+line_direction <- function(w) {
+  if (nrow(w) < 3L) return(NA_real_)
+  w <- w[order(w$stream_order), ]
+  dx <- diff(w$x0)
+  dy <- diff(w$y0)
+  same_line <- abs(dy) <= 1 & abs(dx) > 0 & abs(dx) < 200
+  if (sum(same_line) < 2L) return(NA_real_)
+  share_left <- mean(dx[same_line] < 0)
+  if (share_left <= 0.2) return(1)
+  # upside down needs two signals: nearly all words advance to the left and
+  # successive lines move up the page
+  breaks <- abs(dy) > 1
+  if (share_left >= 0.8 && sum(breaks) >= 1L && stats::median(dy[breaks]) < 0) return(-1)
+  NA_real_
+}
+
 # Map boxes between displayed space and upright (unrotated content) space.
 to_upright <- function(x0, y0, x1, y1, rotation, width, height) {
   if (is.na(rotation) || rotation == 0L) return(list(x0 = x0, y0 = y0, x1 = x1, y1 = y1))
+  if (rotation == 180L) return(list(x0 = width - x1, x1 = width - x0, y0 = height - y1, y1 = height - y0))
   if (rotation == 90L) {
     list(x0 = y0, x1 = y1, y0 = width - x1, y1 = width - x0)
   } else {
@@ -105,6 +144,7 @@ to_upright <- function(x0, y0, x1, y1, rotation, width, height) {
 
 from_upright <- function(x0, y0, x1, y1, rotation, width, height) {
   if (is.na(rotation) || rotation == 0L) return(list(x0 = x0, y0 = y0, x1 = x1, y1 = y1))
+  if (rotation == 180L) return(list(x0 = width - x1, x1 = width - x0, y0 = height - y1, y1 = height - y0))
   if (rotation == 90L) {
     list(x0 = width - y1, x1 = width - y0, y0 = x0, y1 = x1)
   } else {

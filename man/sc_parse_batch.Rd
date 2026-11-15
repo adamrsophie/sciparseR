@@ -9,7 +9,8 @@ sc_parse_batch(
   config = sc_config(),
   cache_dir = NULL,
   workers = 1L,
-  progress = FALSE
+  progress = FALSE,
+  keep = TRUE
 )
 }
 \arguments{
@@ -23,11 +24,16 @@ sc_parse_batch(
 values above 1 have effect only on Unix-alike systems).}
 
 \item{progress}{Print one line per file.}
+
+\item{keep}{If \code{FALSE}, documents are not kept in memory: each one is
+written to the cache (which \code{cache_dir} must then name) and read back
+on demand with \code{\link[=sc_batch_document]{sc_batch_document()}}. Use it for large corpora.}
 }
 \value{
 An object of class \code{sc_batch}: a list with \code{documents} (named
-list, \code{NULL} for failures) and \code{status} (data frame with file, status,
-cached, seconds, doc_id and error message).
+list, \code{NULL} for failures and for every file when \code{keep = FALSE}) and
+\code{status} (data frame with file, path, status, cached, seconds, doc_id,
+number of warnings, cache file and error message).
 }
 \description{
 Parses each file and returns a list of documents with a status table.

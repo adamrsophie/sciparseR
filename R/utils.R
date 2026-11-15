@@ -10,7 +10,8 @@ sc_schema_version <- "1.0.0"
   pages = c(page = "i", width = "d", height = "d", media_width = "d",
             media_height = "d", rotation = "i", rotation_status = "c",
             n_words = "i", has_text_layer = "l", image_only = "l",
-            ink_ratio = "d", ocr_status = "c", n_columns = "i"),
+            ink_ratio = "d", ocr_status = "c", n_columns = "i",
+            media_x0 = "d", media_y0 = "d", rotation_source = "c"),
   spans = c(span_id = "c", page = "i", x0 = "d", y0 = "d", x1 = "d", y1 = "d",
             text = "c", font_name = "c", font_size = "d", bold = "l",
             italic = "l", superscript = "l", line_id = "c", block_id = "c",
@@ -236,3 +237,6 @@ collapse_ids <- function(x) {
 split_ids <- function(x) {
   if (is.na(x) || !nzchar(x)) character() else strsplit(x, ",", fixed = TRUE)[[1]]
 }
+
+# Escape every regular expression metacharacter of a literal string.
+regex_escape <- function(x) gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", x)

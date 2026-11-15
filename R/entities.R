@@ -192,6 +192,9 @@ sc_citations <- function(doc) {
 #' @param file Output PNG file.
 #' @param dpi Rendering resolution.
 #' @param padding Padding around the box in points.
+#' @param path Path of the source PDF, when the document does not hold it
+#'   (a document read with [sc_read_json()]) or the file has moved. The
+#'   checksum must still match.
 #' @return The path of the PNG file, invisibly.
 #' @examples
 #' doc <- sc_parse(system.file("extdata", "figure_equation.pdf", package = "sciparseR"))
@@ -200,8 +203,9 @@ sc_citations <- function(doc) {
 #'   file.exists(f)
 #' }
 #' @export
-sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4) {
+sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4, path = NULL) {
   check_document(doc)
+  if (!is.null(path)) doc$source$path <- path
   if (doc$source$format != "pdf") abort("Cropping needs a PDF document.")
   check_source_pdf(doc)
   if (!is_installed("png")) abort("The png package is needed to write PNG files.")
@@ -236,6 +240,9 @@ sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4) {
 #' @param dir Output directory.
 #' @param dpi Rendering resolution.
 #' @param color Box color.
+#' @param path Path of the source PDF, when the document does not hold it
+#'   (a document read with [sc_read_json()]) or the file has moved. The
+#'   checksum must still match.
 #' @return The paths of the PNG files, invisibly.
 #' @examples
 #' doc <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"))
@@ -245,8 +252,9 @@ sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4) {
 #'   basename(files)
 #' }
 #' @export
-sc_highlight <- function(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d") {
+sc_highlight <- function(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d", path = NULL) {
   check_document(doc)
+  if (!is.null(path)) doc$source$path <- path
   if (doc$source$format != "pdf") abort("Highlighting needs a PDF document.")
   check_source_pdf(doc)
   if (!is_installed("png")) abort("The png package is needed to read and write PNG files.")
@@ -286,9 +294,61 @@ check_source_pdf <- function(doc) {
   p <- doc$source$path
   if (is.null(p) || !length(p) || is.na(p[1]) || !nzchar(p[1])) {
     abort("The document has no source path (JSON exports leave it out by default). ",
-          "Set `doc$source$path` to the PDF file and try again.")
+          "Pass the PDF file as `path`.")
   }
-  if (!file.exists(p)) abort("The source PDF is no longer at ", p, ". Set `doc$source$path` to its new location.")
+  if (!file.exists(p)) abort("The source PDF is no longer at ", p, ". Pass its new location as `path`.")
   if (!identical(sha256_file(p), doc$source$sha256)) abort("The source PDF has changed since parsing (checksum differs).")
   invisible(TRUE)
+}
+
+#' Convert boxes to PDF user space
+#'
+#' sciparseR stores boxes in the displayed page space: PDF points with the
+#' origin at the top left of the page as it is shown. Annotation tools and
+#' other PDF software use PDF user space: the unrotated media box with the
+#' origin at the bottom left. `sc_to_pdf_space()` undoes the page rotation
+#' (when it comes from a `/Rotate` entry) and flips the y axis.
+#'
+#' @param doc An `sc_document` parsed from a PDF file.
+#' @param x A data frame with columns `page`, `x0`, `y0`, `x1` and `y1`, such
+#'   as [sc_blocks()], [sc_table_cells()] or [sc_evidence()].
+#' @return `x` with columns `pdf_x0`, `pdf_y0` (lower left corner),
+#'   `pdf_x1`, `pdf_y1` (upper right corner) and `pdf_space_status`:
+#'   `"converted"`, `"rotation_assumed_entry"` (a page shown upside down whose
+#'   rotation source could not be read; a `/Rotate` entry is assumed) or
+#'   `"no_box"`.
+#' @examples
+#' doc <- sc_parse(system.file("extdata", "rotated.pdf", package = "sciparseR"))
+#' sc_to_pdf_space(doc, sc_blocks(doc))[1, c("page", "x0", "y0", "pdf_x0", "pdf_y0")]
+#' @export
+sc_to_pdf_space <- function(doc, x) {
+  check_document(doc)
+  if (doc$source$format != "pdf") abort("PDF user space exists only for PDF documents.")
+  if (!is.data.frame(x) || !all(c("page", "x0", "y0", "x1", "y1") %in% names(x))) {
+    abort("`x` must be a data frame with columns page, x0, y0, x1 and y1.")
+  }
+  n <- nrow(x)
+  out <- list(pdf_x0 = rep(NA_real_, n), pdf_y0 = rep(NA_real_, n), pdf_x1 = rep(NA_real_, n),
+              pdf_y1 = rep(NA_real_, n), pdf_space_status = rep("no_box", n))
+  pg <- doc$pages
+  for (i in which(!is.na(x$page) & !is.na(x$x0))) {
+    g <- pg[pg$page == x$page[i], , drop = FALSE]
+    if (!nrow(g)) next
+    rot <- g$rotation %|NA|% 0L
+    src <- g$rotation_source %|NA|% "none"
+    # content drawn rotated in the page stream is already in media space
+    undo <- rot != 0L && src != "content"
+    m <- if (undo) to_upright(x$x0[i], x$y0[i], x$x1[i], x$y1[i], rot, g$width, g$height) else
+      list(x0 = x$x0[i], y0 = x$y0[i], x1 = x$x1[i], y1 = x$y1[i])
+    mh <- g$media_height
+    ox <- g$media_x0 %|NA|% 0
+    oy <- g$media_y0 %|NA|% 0
+    out$pdf_x0[i] <- ox + m$x0
+    out$pdf_x1[i] <- ox + m$x1
+    out$pdf_y0[i] <- oy + mh - m$y1
+    out$pdf_y1[i] <- oy + mh - m$y0
+    out$pdf_space_status[i] <- if (rot == 180L && src == "unknown") "rotation_assumed_entry" else "converted"
+  }
+  for (k in names(out)) x[[k]] <- out[[k]]
+  x
 }

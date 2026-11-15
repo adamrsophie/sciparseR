@@ -10,6 +10,7 @@ body_font_size <- function(words) {
 
 upright_ink <- function(ink, rotation) {
   if (is.null(ink) || is.na(rotation) || rotation == 0L) return(ink)
+  if (rotation == 180L) return(ink[rev(seq_len(nrow(ink))), rev(seq_len(ncol(ink))), drop = FALSE])
   tt <- t(ink)
   if (rotation == 90L) tt[rev(seq_len(nrow(tt))), , drop = FALSE] else tt[, rev(seq_len(ncol(tt))), drop = FALSE]
 }
@@ -30,8 +31,15 @@ convert_boxes <- function(df, geom, inverse = TRUE) {
   df
 }
 
-parse_pdf <- function(path, cfg, log) {
+parse_pdf <- function(path, cfg, log, ocr_words = NULL) {
   words <- pdf_words(path)
+  n_text <- vapply(seq_len(max(c(0L, words$page, ocr_words$page))), function(p) sum(words$page == p), integer(1))
+  # OCR words replace the text layer of their pages and then go through the
+  # same layout, table, figure and section steps as text layer words
+  if (!is.null(ocr_words) && nrow(ocr_words)) {
+    words <- rbind(words[!words$page %in% unique(ocr_words$page), , drop = FALSE], ocr_words[, names(words)])
+    words <- words[order(words$page, words$stream_order), , drop = FALSE]
+  }
   geom <- pdf_page_geometry(path, words)
   n_pages <- nrow(geom)
   if (nrow(words)) {
@@ -78,7 +86,8 @@ parse_pdf <- function(path, cfg, log) {
   vocab <- if (is.null(ll)) character() else doc_vocab(ll$text)
   pages <- geom
   pages$n_words <- vapply(seq_len(n_pages), function(p) sum(words$page == p), integer(1))
-  pages$has_text_layer <- pages$n_words > 0L
+  pages$has_text_layer <- n_text[seq_len(n_pages)] > 0L
+  pages$has_text_layer[is.na(pages$has_text_layer)] <- FALSE
   pages$image_only <- rep(NA, nrow(pages))
   pages$ink_ratio <- rep(NA_real_, nrow(pages))
   pages$ocr_status <- rep("not_needed", nrow(pages))
@@ -101,9 +110,10 @@ parse_pdf <- function(path, cfg, log) {
       } else if (is.na(pages$image_only[p])) {
         log$add("pdf", "empty_text_layer", "Page has no text layer; rendering disabled so image content is unknown.", p)
       }
-      next
+      if (!p %in% ocr_words$page) next
+    } else {
+      pages$image_only[p] <- FALSE
     }
-    pages$image_only[p] <- FALSE
     lp <- ll[ll$page == p, , drop = FALSE]
     wp <- wl[wl$page == p, , drop = FALSE]
     body <- lp[is.na(lp$marginal), , drop = FALSE]
@@ -302,7 +312,7 @@ parse_pdf <- function(path, cfg, log) {
                    y1 = wl$y1, text = wl$text, font_name = wl$font_name, font_size = wl$font_size,
                    bold = wl$bold, italic = wl$italic, superscript = wl$superscript,
                    line_id = wl$line_id, block_id = wl$block_id,
-                   source = "pdf_text_layer"), "spans")
+                   source = wl$source, confidence = wl$confidence), "spans")
   }
   spans <- spans[order(spans$page, match(spans$block_id, blocks$block_id), spans$y0, spans$x0), , drop = FALSE]
   lines <- if (is.null(ll)) empty_entity("lines") else as_entity(list(

@@ -61,12 +61,42 @@
       "page": 1,
       "header_rows": 2,
       "cells": [
-        ["", "Treatment group", "", ""],
-        ["Characteristic", "Drug A (n = 120)", "Placebo (n = 118)", "P value"],
-        ["Age, years, mean (SD)", "61.2 (9.8)", "60.7 (10.1)", "0.70"],
-        ["Female sex, n (%)", "54 (45.0)", "50 (42.4)", "0.69"],
-        ["BMI, kg/m2, mean (SD)", "27.1 (4.2)", "–", ""],
-        ["Diabetes, n (%)a", "30 (25.0)", "28 (23.7)", "0.82"]
+        [
+          "Characteristic",
+          "Treatment group",
+          "",
+          "P value"
+        ],
+        [
+          "",
+          "Drug A (n = 120)",
+          "Placebo (n = 118)",
+          ""
+        ],
+        [
+          "Age, years, mean (SD)",
+          "61.2 (9.8)",
+          "60.7 (10.1)",
+          "0.70"
+        ],
+        [
+          "Female sex, n (%)",
+          "54 (45.0)",
+          "50 (42.4)",
+          "0.69"
+        ],
+        [
+          "BMI, kg/m2, mean (SD)",
+          "27.1 (4.2)",
+          "–",
+          ""
+        ],
+        [
+          "Diabetes, n (%)a",
+          "30 (25.0)",
+          "28 (23.7)",
+          "0.82"
+        ]
       ],
       "spans": [
         {
@@ -74,6 +104,20 @@
           "col": 2,
           "ncol": 2,
           "text": "Treatment group"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "ncol": 1,
+          "nrow": 2,
+          "text": "Characteristic"
+        },
+        {
+          "row": 1,
+          "col": 4,
+          "ncol": 1,
+          "nrow": 2,
+          "text": "P value"
         }
       ],
       "continued_of": null,
@@ -85,10 +129,34 @@
       "page": 1,
       "header_rows": 1,
       "cells": [
-        ["Outcome", "Drug A", "Placebo", "HR (95% CI)", "P"],
-        ["Primary outcome, n/N (%)", "24/120 (20.0)", "36/118 (30.5)", "0.62 (0.41–0.94)", "0.02"],
-        ["All-cause death, n/N (%)", "5/120 (4.2)", "7/118 (5.9)", "0.71 (0.23–2.24)", "0.56"],
-        ["Change in SBP, mm Hg, mean (SE)", "-8.1 (1.2)", "-3.4 (1.1)", "", "0.004"]
+        [
+          "Outcome",
+          "Drug A",
+          "Placebo",
+          "HR (95% CI)",
+          "P"
+        ],
+        [
+          "Primary outcome, n/N (%)",
+          "24/120 (20.0)",
+          "36/118 (30.5)",
+          "0.62 (0.41–0.94)",
+          "0.02"
+        ],
+        [
+          "All-cause death, n/N (%)",
+          "5/120 (4.2)",
+          "7/118 (5.9)",
+          "0.71 (0.23–2.24)",
+          "0.56"
+        ],
+        [
+          "Change in SBP, mm Hg, mean (SE)",
+          "-8.1 (1.2)",
+          "-3.4 (1.1)",
+          "",
+          "0.004"
+        ]
       ],
       "spans": [],
       "continued_of": null,

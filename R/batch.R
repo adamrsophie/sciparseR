@@ -12,9 +12,13 @@
 #' @param workers Number of parallel workers (uses `parallel::mclapply`, so
 #'   values above 1 have effect only on Unix-alike systems).
 #' @param progress Print one line per file.
+#' @param keep If `FALSE`, documents are not kept in memory: each one is
+#'   written to the cache (which `cache_dir` must then name) and read back
+#'   on demand with [sc_batch_document()]. Use it for large corpora.
 #' @return An object of class `sc_batch`: a list with `documents` (named
-#'   list, `NULL` for failures) and `status` (data frame with file, status,
-#'   cached, seconds, doc_id and error message).
+#'   list, `NULL` for failures and for every file when `keep = FALSE`) and
+#'   `status` (data frame with file, path, status, cached, seconds, doc_id,
+#'   number of warnings, cache file and error message).
 #' @examples
 #' files <- system.file("extdata", c("single_column.pdf", "trial_article.xml"),
 #'                      package = "sciparseR")
@@ -25,8 +29,9 @@
 #' sc_cache_info(cache)
 #' @export
 sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, workers = 1L,
-                           progress = FALSE) {
+                           progress = FALSE, keep = TRUE) {
   if (!is.character(paths) || !length(paths)) abort("`paths` must be a character vector of files.")
+  if (!isTRUE(keep) && is.null(cache_dir)) abort("`keep = FALSE` needs a `cache_dir` to hold the documents.")
   if (!is.null(cache_dir)) dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
   one <- function(p) {
     t0 <- Sys.time()
@@ -41,7 +46,7 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
         # identical bytes may live at another path: point to this file
         d$source$path <- normalizePath(p, mustWork = TRUE)
         d$source$file_name <- basename(p)
-        list(doc = d, cached = TRUE, error = NA_character_)
+        list(doc = d, cached = TRUE, error = NA_character_, cache_file = cf)
       } else {
         d <- sc_parse(p, config = config)
         if (!is.null(cf)) {
@@ -49,11 +54,15 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
           saveRDS(d, tmp)
           file.rename(tmp, cf)
         }
-        list(doc = d, cached = FALSE, error = NA_character_)
+        list(doc = d, cached = FALSE, error = NA_character_, cache_file = cf %||% NA_character_)
       }
-    }, error = function(e) list(doc = NULL, cached = FALSE, error = conditionMessage(e)))
+    }, error = function(e) list(doc = NULL, cached = FALSE, error = conditionMessage(e), cache_file = NA_character_))
+    res$doc_id <- if (is.null(res$doc)) NA_character_ else res$doc$doc_id
+    res$n_warnings <- if (is.null(res$doc)) NA_integer_ else nrow(res$doc$warnings)
+    res$ok <- !is.null(res$doc)
+    if (!isTRUE(keep)) res$doc <- NULL
     res$seconds <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
-    if (progress) message(basename(p), ": ", if (is.null(res$doc)) paste("failed:", res$error) else if (res$cached) "cached" else "parsed")
+    if (progress) message(basename(p), ": ", if (!res$ok) paste("failed:", res$error) else if (res$cached) "cached" else "parsed")
     res
   }
   res <- if (workers > 1L && .Platform$OS.type == "unix") parallel::mclapply(paths, one, mc.cores = workers) else lapply(paths, one)
@@ -61,11 +70,13 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
   names(docs) <- make.unique(basename(paths), sep = "_")
   status <- data.frame(
     file = names(docs),
-    status = vapply(res, function(r) if (is.null(r$doc)) "failed" else "ok", ""),
+    path = paths,
+    status = vapply(res, function(r) if (r$ok) "ok" else "failed", ""),
     cached = vapply(res, `[[`, logical(1), "cached"),
     seconds = round(vapply(res, `[[`, numeric(1), "seconds"), 3),
-    doc_id = vapply(docs, function(d) if (is.null(d)) NA_character_ else d$doc_id, ""),
-    n_warnings = vapply(docs, function(d) if (is.null(d)) NA_integer_ else nrow(d$warnings), integer(1)),
+    doc_id = vapply(res, `[[`, character(1), "doc_id"),
+    n_warnings = vapply(res, `[[`, integer(1), "n_warnings"),
+    cache_file = vapply(res, function(r) r$cache_file %||% NA_character_, character(1)),
     error = vapply(res, `[[`, character(1), "error"),
     stringsAsFactors = FALSE)
   rownames(status) <- NULL
@@ -116,4 +127,34 @@ sc_cache_info <- function(cache_dir, clear = FALSE) {
   if (!length(rows)) return(data.frame(key = character(), source = character(), doc_id = character(),
                                        package_version = character(), size_bytes = numeric(), modified = as.POSIXct(character())))
   do.call(rbind, rows)
+}
+
+#' Get one document of a batch
+#'
+#' Returns a document of an [sc_parse_batch()] result, from memory or, for
+#' a batch run with `keep = FALSE`, from the cache.
+#'
+#' @param batch An `sc_batch`.
+#' @param file A file name as in `batch$status$file`, or a row number.
+#' @return An `sc_document`.
+#' @examples
+#' files <- system.file("extdata", c("single_column.pdf", "trial_article.xml"),
+#'                      package = "sciparseR")
+#' b <- sc_parse_batch(files, cache_dir = file.path(tempdir(), "sc-cache"), keep = FALSE)
+#' sc_batch_document(b, "trial_article.xml")
+#' @export
+sc_batch_document <- function(batch, file) {
+  if (!inherits(batch, "sc_batch")) abort("`batch` must come from sc_parse_batch().")
+  st <- batch$status
+  i <- if (is.numeric(file)) as.integer(file) else match(file, st$file)
+  if (length(i) != 1L || is.na(i) || i < 1L || i > nrow(st)) abort("No such file in the batch: ", file)
+  if (st$status[i] != "ok") abort("File ", st$file[i], " failed: ", st$error[i])
+  d <- batch$documents[[i]]
+  if (!is.null(d)) return(d)
+  cf <- st$cache_file[i]
+  d <- if (!is.na(cf) && file.exists(cf)) tryCatch(readRDS(cf), error = function(e) NULL) else NULL
+  if (!inherits(d, "sc_document")) abort("The cached document of ", st$file[i], " is gone; run the batch again.")
+  d$source$path <- normalizePath(st$path[i], mustWork = FALSE)
+  d$source$file_name <- basename(st$path[i])
+  d
 }

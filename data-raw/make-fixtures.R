@@ -138,6 +138,20 @@ draw_table <- function(cells, xs, y, size = 9, header_rows = 1L,
   }
   if (rules) hrule(xs[1], x_end, y - 4, 0.9)
   clean <- gsub("^", "", cells, fixed = TRUE)
+  # a header label with only empty header cells above it spans those rows
+  # and is anchored at the top row, as in JATS
+  if (header_rows > 1L) {
+    for (cc in seq_len(ncol(clean))) {
+      hr <- clean[seq_len(header_rows), cc]
+      if (any(vapply(spans, function(s) cc >= s$col && cc < s$col + s$ncol, logical(1)))) next
+      k <- which(nzchar(hr))
+      if (length(k) == 1L && k > 1L && all(!nzchar(hr[seq_len(k - 1L)]))) {
+        clean[1L, cc] <- hr[k]
+        clean[k, cc] <- ""
+        spans[[length(spans) + 1L]] <- list(row = 1L, col = cc, ncol = 1L, nrow = k, text = hr[k])
+      }
+    }
+  }
   truth$tables[[length(truth$tables) + 1L]] <<- list(
     label = label, page = page, header_rows = header_rows,
     cells = unname(lapply(seq_len(nrow(clean)), function(i) unname(clean[i, ]))),

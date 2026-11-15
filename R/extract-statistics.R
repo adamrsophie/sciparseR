@@ -83,14 +83,14 @@ match_arm <- function(phrase, arms) {
   p <- tolower(trimws(sub("\\s*\\((n|N)\\s*=\\s*[0-9,]+\\)", "", phrase)))
   p <- sub("\\s+(group|arm|cohort)$", "", p)
   hit <- names(arms)[names(arms) == p]
-  if (!length(hit)) hit <- names(arms)[vapply(names(arms), function(a) grepl(paste0("\\b", gsub("([.()+*?])", "\\\\\\1", a), "\\b"), p), logical(1))]
+  if (!length(hit)) hit <- names(arms)[vapply(names(arms), function(a) grepl(paste0("\\b", regex_escape(a), "\\b"), p), logical(1))]
   if (length(hit) == 1L) unname(arms[hit]) else NA_character_
 }
 
 arms_in_text <- function(text, arms) {
   if (!length(arms)) return(character())
   pos <- vapply(names(arms), function(a) {
-    m <- regexpr(paste0("(?i)\\b", gsub("([.()+*?])", "\\\\\\1", a), "\\b"), text, perl = TRUE)
+    m <- regexpr(paste0("(?i)\\b", regex_escape(a), "\\b"), text, perl = TRUE)
     as.integer(m)
   }, integer(1))
   found <- pos > 0
@@ -137,6 +137,7 @@ value_context <- function(st, pos, cl, sent_outcome, arms = character()) {
   }
   tp <- pick(find_timepoint, "timepoint")
   as <- pick(find_analysis_set, "analysis_set")
+  po <- pick(find_population, "population")
   out <- sent_outcome
   ob <- if (is.na(out)) "outcome=unbound" else "outcome=sentence_subject"
   if (k > 1L) {
@@ -153,8 +154,8 @@ value_context <- function(st, pos, cl, sent_outcome, arms = character()) {
       ob <- "outcome=unbound"
     }
   }
-  list(timepoint = tp[[1]], analysis_set = as[[1]], outcome = out, clause = ct,
-       bind = c(ob, tp[[2]], as[[2]]))
+  list(timepoint = tp[[1]], analysis_set = as[[1]], population = po[[1]], outcome = out, clause = ct,
+       bind = c(ob, tp[[2]], as[[2]], po[[2]]))
 }
 
 # Arm and comparator of a comparative estimate. The comparator is the arm
@@ -165,7 +166,7 @@ comparison_arms <- function(text, arms) {
   if (length(found) < 2L) return(list(arm = NA_character_, comparator = NA_character_, bind = "comparison=unbound"))
   cue <- "(?i)\\b(?:compared (?:with|to)|versus|vs\\.?|relative to|than(?: with| in)?)\\s+(?:the\\s+)?"
   for (a in found) {
-    if (grepl(paste0(cue, gsub("([.()+*?])", "\\\\\\1", a), "\\b"), text, perl = TRUE)) {
+    if (grepl(paste0(cue, regex_escape(a), "\\b"), text, perl = TRUE)) {
       other <- setdiff(found, a)
       if (length(other) == 1L) return(list(arm = other, comparator = a, bind = "comparison=comparator_cue"))
     }
@@ -196,6 +197,10 @@ dispersion_label <- function(after, clause, st) {
 }
 
 rule_text_statistics <- function(col, units, arms) {
+  # an abbreviation ("HR") is trusted only when the document also writes the
+  # full term somewhere; otherwise its estimates are kept as ambiguous
+  all_text <- paste(units$text, collapse = " ")
+  defined <- names(measure_full)[vapply(measure_full, function(p) grepl(paste0("(?i)\\b(?:", p, ")\\b"), all_text, perl = TRUE), logical(1))]
   arms <- arm_aliases(arms)
   u <- units[units$type %in% c("paragraph", "footnote") & units$section_label %in% c("abstract", "results", NA), , drop = FALSE]
   ci_re <- paste0("^[^0-9]{0,40}?(?:([0-9]{2}(?:\\.[0-9]+)?)%\\s*(?:CI|confidence interval|CrI|credible interval)(?:\\s*\\[(?:CI|CrI)\\])?[,:]?\\s*)?\\(?\\s*(",
@@ -274,7 +279,15 @@ rule_text_statistics <- function(col, units, arms) {
           if (is.na(cmp$arm) && cmp$bind != "comparison=no_direction_cue") cmp <- comparison_arms(st, arms)
           bind <- paste(c(m_bind, cx$bind[-1], cmp$bind,
                           if (is.na(adj)) "adjustment=not_stated" else "adjustment=sentence"), collapse = "; ")
-          common <- list(outcome = m_out, timepoint = cx$timepoint, analysis_set = cx$analysis_set, effect_measure = ms$measure[k],
+          undefined_abbr <- abbr && !ms$measure[k] %in% defined
+          if (undefined_abbr) {
+            common_status <- "ambiguous"
+            common_note <- paste0("abbreviation '", token, "' is not defined in the document")
+          } else {
+            common_status <- "reported"
+            common_note <- NA_character_
+          }
+          common <- list(status = common_status, notes = common_note, outcome = m_out, timepoint = cx$timepoint, analysis_set = cx$analysis_set, population = cx$population, effect_measure = ms$measure[k],
                          adjusted = adj, arm = cmp$arm, comparator = cmp$comparator, binding = bind,
                          observation_id = obs, method = "rules:text_effect")
           do.call(add_record, c(list(col, "result", est_txt, statistic = "estimate", value_num = as_num(est_txt),
@@ -325,7 +338,7 @@ rule_text_statistics <- function(col, units, arms) {
             }
           }
           obs <- next_observation(col)
-          common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, arm = arm,
+          common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, population = cx$population, arm = arm,
                          binding = paste(c(cx$bind, arm_bind), collapse = "; "),
                          observation_id = obs, method = "rules:text_counts")
           do.call(add_record, c(list(col, "result", grab(1), statistic = "events", value_num = as_num(grab(1)),
@@ -355,7 +368,7 @@ rule_text_statistics <- function(col, units, arms) {
           }
           obs <- next_observation(col)
           unit <- regmatches(substring(st, cs[j, 2] + cl[j, 2]), regexpr("^\\s*(mm Hg|mmHg|kg/m2|kg|cm|mg/dL|mmol/L|%|points?|years?)", substring(st, cs[j, 2] + cl[j, 2])))
-          common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, arm = arm,
+          common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, population = cx$population, arm = arm,
                          unit = if (length(unit)) trimws(unit) else NA_character_,
                          binding = paste(c(cx$bind, if (!is.na(arm)) "arm=clause" else "arm=unbound"), collapse = "; "),
                          observation_id = obs, method = "rules:text_mean_pm")
@@ -375,7 +388,7 @@ rule_text_statistics <- function(col, units, arms) {
         cl <- attr(mm, "capture.length")
         obs <- next_observation(col)
         cx <- value_context(st, mm, clauses, outcome, arms)
-        common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set,
+        common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, population = cx$population,
                        binding = paste(cx$bind, collapse = "; "),
                        observation_id = obs, method = "rules:text_median_iqr")
         for (g in 1:3) {
@@ -395,7 +408,7 @@ rule_text_statistics <- function(col, units, arms) {
           cx <- value_context(st, pall[j], clauses, outcome, arms)
           add_record(col, "result", pv, statistic = "p_value", value_num = as_num(pv),
                      p_operator = substr(st, cs[j, 1], cs[j, 1] + cl[j, 1] - 1L),
-                     outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set,
+                     outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, population = cx$population,
                      binding = paste(c(cx$bind, "comparison=unbound"), collapse = "; "),
                      observation_id = next_observation(col), evidence_id = ev_at(cs[j, 2], cl[j, 2]),
                      method = "rules:text_p_value")
@@ -546,6 +559,7 @@ rule_table_statistics <- function(col, doc, arms) {
     field <- if (baseline) "baseline" else "result"
     tp <- if (baseline) "baseline" else find_timepoint(caption)
     aset <- find_analysis_set(caption)
+    cap_pop <- find_population(caption)
     hdr <- column_headers(cells, tb$n_cols)
     roles <- lapply(hdr, column_role, arms = arms)
     roles[[1]] <- list(role = "label")
@@ -614,7 +628,8 @@ rule_table_statistics <- function(col, doc, arms) {
         h <- hint %|NA|% col_hint
         col_tp <- r$timepoint %||% NA_character_
         cell_tp <- if (!is.na(col_tp)) col_tp else row_tp
-        base <- list(outcome = tolower(cl$outcome), unit = cl$unit, timepoint = cell_tp, analysis_set = aset)
+        base <- list(outcome = tolower(cl$outcome), unit = cl$unit, timepoint = cell_tp, analysis_set = aset,
+                     population = cap_pop)
         bind <- c("outcome=table_row_label",
                   if (!is.na(col_tp)) "timepoint=table_column_header" else if (!is.na(row_tp)) "timepoint=table_caption_or_row",
                   if (!is.na(aset)) "analysis_set=table_caption")

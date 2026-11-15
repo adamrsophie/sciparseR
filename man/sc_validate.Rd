@@ -23,7 +23,11 @@ The extraction with \code{validation} filled and record
 \description{
 Runs deterministic scientific checks over an \code{sc_extraction} and records
 each finding in \code{x$validation}. Record level \code{validation_status} becomes
-\code{"pass"}, \code{"warning"}, \code{"fail"} or \code{"exception"}.
+\code{"pass"}, \code{"warning"}, \code{"fail"} or \code{"exception"}. A reported value that
+fails a rule of severity error (and has no exception) gets status
+\code{"inconsistent"}: it is kept, shown in the review queue and not used by
+\code{\link[=sc_derive]{sc_derive()}}. Validating again restores \code{"reported"} when the failure is
+gone.
 }
 \details{
 Rules:

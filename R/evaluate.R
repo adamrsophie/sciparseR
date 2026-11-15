@@ -92,8 +92,10 @@ sc_evaluate <- function(doc, truth, threshold = 0.9) {
             sq(a) == sq(mr[seq_len(rr), seq_len(cc), drop = FALSE]))
     } else 0
     acc <- hits / (max(nrow(m), nr) * max(ncol(m), nc))
-    cl <- doc$cells[doc$cells$table_id == tid & doc$cells$col_span > 1L, , drop = FALSE]
-    spans_ok <- all(vapply(t$spans %||% list(), function(s) any(cl$row == s$row & cl$col == s$col & cl$col_span == s$ncol), logical(1)))
+    cl <- doc$cells[doc$cells$table_id == tid & (doc$cells$col_span > 1L | doc$cells$row_span > 1L), , drop = FALSE]
+    spans_ok <- all(vapply(t$spans %||% list(), function(s) {
+      any(cl$row == s$row & cl$col == s$col & cl$col_span == s$ncol & cl$row_span == (s$nrow %||% 1L))
+    }, logical(1)))
     tdet <- rbind(tdet, data.frame(label = lab, page = t$page, found = TRUE, dims_ok = dims_ok,
                                    header_ok = identical(as.integer(cand$n_header_rows[1]), as.integer(t$header_rows)),
                                    cell_accuracy = acc, spans_ok = spans_ok))

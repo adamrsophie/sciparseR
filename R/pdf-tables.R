@@ -273,6 +273,7 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
       }
     }
     cells <- bind_entity(lapply(cl, as.data.frame, stringsAsFactors = FALSE), "cells")
+    cells <- header_row_spans(cells, n_header)
     cells$table_id <- tid
     cells$cell_id <- sprintf("%s-r%03dc%03d", tid, cells$row, cells$col)
     # footnotes directly below the table
@@ -321,4 +322,32 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
   out$footnotes <- bind_entity(fns_all, "footnotes")
   out$units <- do.call(rbind, units)
   out
+}
+
+# A header cell whose column has only empty header cells above or below it
+# spans those rows: "Characteristic" printed on the lower row of a two level
+# header, or "Outcome" on the upper row. As in JATS, the cell is anchored at
+# the top row of its span and the covered empty cells are removed.
+header_row_spans <- function(cells, n_header) {
+  if (n_header < 2L || !nrow(cells)) return(cells)
+  empty_at <- function(r, cols) {
+    k <- which(cells$row == r & cells$col %in% cols)
+    length(k) && !any(nzchar(cells$text[k])) && all(cells$col[k] + cells$col_span[k] - 1L <= max(cols)) &&
+      all(cells$col[k] >= min(cols))
+  }
+  drop <- integer()
+  for (i in which(cells$is_header & nzchar(cells$text))) {
+    cols <- cells$col[i]:(cells$col[i] + cells$col_span[i] - 1L)
+    top <- cells$row[i]
+    while (top > 1L && empty_at(top - 1L, cols)) top <- top - 1L
+    bottom <- cells$row[i]
+    while (bottom < n_header && empty_at(bottom + 1L, cols)) bottom <- bottom + 1L
+    if (top == bottom) next
+    cov <- which(cells$row >= top & cells$row <= bottom & cells$col %in% cols & seq_len(nrow(cells)) != i)
+    drop <- c(drop, cov)
+    cells$row[i] <- top
+    cells$row_span[i] <- bottom - top + 1L
+  }
+  if (length(drop)) cells <- cells[-unique(drop), , drop = FALSE]
+  cells[order(cells$row, cells$col), , drop = FALSE]
 }
