@@ -73,7 +73,6 @@ sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
     ro <- r[live & r$observation_id %in% o, , drop = FALSE]
     ev <- val(ro, "events")
     den <- val(ro, "denominator")
-    cnt <- val(ro, "count")
     pct <- val(ro, "percent")
     for (stat in c("events", "count")) {
       v <- val(ro, stat)
@@ -172,7 +171,7 @@ sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
     add("cross_source_conflict", "error", "fail", rn$record_id, NA,
         sprintf("randomized number reported as %s", paste(unique(rn$value_num), collapse = " and ")))
   }
-  arm_n <- r[live & r$field == "arm_n" & !is.na(r$value_num) & grepl("allocation", r$method %|NA|% "") , , drop = FALSE]
+  arm_n <- r[live & r$field == "arm_n" & !is.na(r$value_num) & grepl("allocation", r$method %|NA|% ""), , drop = FALSE]
   arm_n <- r[live & r$field == "arm_n" & !is.na(r$value_num) & r$method == "rules:arm_n", , drop = FALSE]
   if (nrow(rn) && nrow(arm_n) >= 2L) {
     tot <- sum(arm_n$value_num[!duplicated(arm_n$arm)])

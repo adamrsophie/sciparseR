@@ -5,6 +5,7 @@
 # committed, so tests never regenerate them (cairo output depends on the
 # platform fonts).
 
+source(file.path("data-raw", "extraction-truth.R"))
 out_dir <- file.path("inst", "extdata")
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -389,6 +390,7 @@ trial <- function(f, contradictory = FALSE) {
     c("Change in SBP, mm Hg, mean (SE)", "-8.1 (1.2)", "-3.4 (1.1)", "", "0.004"))
   y <- draw_table(t2, c(72, 240, 320, 400, 500), y, header_rows = 1L,
                   rules = FALSE, label = "Table 2")
+  if (!contradictory) truth$extraction <<- trial_extraction_truth()
   finish(f)
 }
 trial(file.path(out_dir, "trial_tables.pdf"))
@@ -484,6 +486,19 @@ ae2 <- rbind(c("Event", "Drug A", "Placebo"),
 y <- draw_table(ae2, c(72, 300, 420), 88, header_rows = 1L, label = "Table 3",
                 continued_of = "Table 3")
 finish(f)
+
+# ---- 8. upside-down page and scanned tables ----------------------------
+
+# trial_tables.pdf with a /Rotate 180 entry, and as an image-only scan
+qpdf::pdf_rotate_pages(file.path(out_dir, "trial_tables.pdf"), pages = 1, angle = 180,
+                       output = file.path(out_dir, "rotated180.pdf"))
+bm <- pdftools::pdf_render_page(file.path(out_dir, "trial_tables.pdf"), dpi = 150, numeric = TRUE)
+gray <- 0.299 * bm[, , 1] + 0.587 * bm[, , 2] + 0.114 * bm[, , 3]
+grDevices::pdf(file.path(out_dir, "scanned_tables.pdf"), width = W / 72, height = H / 72)
+graphics::par(mar = c(0, 0, 0, 0))
+graphics::plot.new()
+graphics::rasterImage(ifelse(gray < 0.55, 0, 1), 0, 0, 1, 1, interpolate = FALSE)
+grDevices::dev.off()
 
 unlink(c(img, f0))
 cat("fixtures written to", out_dir, "\n")

@@ -213,7 +213,6 @@ sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4, path = NULL) {
   if (is.na(loc$x0[1])) abort("Element ", id, " has no bounding box.")
   pg <- doc$pages[doc$pages$page == loc$page[1], ]
   bm <- pdftools::pdf_render_page(doc$source$path, page = loc$page[1], dpi = dpi, numeric = TRUE)
-  s <- dpi / 72
   # rendered bitmap is in displayed (rotated) orientation, as are the
   # upright coordinates
   h <- dim(bm)[1]

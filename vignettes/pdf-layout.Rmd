@@ -96,13 +96,27 @@ cont
 
 Pages rotated by 90 or 270 degrees are detected (the displayed page
 swaps width and height) and their words are mapped to the upright page.
-A rotation by 180 degrees cannot be told from no rotation this way; such
-pages are reported with `rotation = 0` and `rotation_status = "assumed_0"`:
+An upside-down page is detected from the words themselves: nearly all
+of them advance to the left and successive lines move up the page. A
+page where the direction cannot be determined is reported with
+`rotation_status = "assumed_0"`. `rotation_source` says whether the page
+was rotated by its `/Rotate` entry or by its content.
 
 ```{r}
 rot <- sc_parse(ex("rotated.pdf"))
 sc_pages(rot)[, c("page", "rotation", "rotation_status", "width", "height")]
 substr(sc_text(rot), 1, 120)
+r180 <- sc_parse(ex("rotated180.pdf"))
+sc_pages(r180)[, c("page", "rotation", "rotation_status", "rotation_source")]
+sc_tables(r180)[, c("label", "n_rows", "n_cols")]
+```
+
+Coordinates are those of the displayed, upright page. To draw on the PDF
+file itself, convert them to PDF user space (bottom-left origin of the
+media box, before rotation):
+
+```{r}
+sc_to_pdf_space(r180, sc_tables(r180))[, c("label", "x0", "y0", "pdf_x0", "pdf_y0", "pdf_space_status")]
 ```
 
 ## Image-only pages

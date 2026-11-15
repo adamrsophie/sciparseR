@@ -27,9 +27,11 @@ rendered page, no words) and marks them `ocr_status = "needed"`. With
 `ocr = "auto"` and the tesseract package installed, those pages are
 rendered to a temporary image and recognized; `ocr = "always"` replaces
 the text layer of every page, together with the lines, tables and
-captions built from it. OCR pages get paragraphs only: headings, tables
-and figures are not detected on them, and sections are rebuilt from the
-headings of the other pages.
+captions built from it. OCR words go through the same steps as a text
+layer: lines, blocks, headings and sections, tables with cells and
+figures. Elements built from them carry `ocr_tesseract` in their method
+(cells carry an `ocr_` status), so evidence always shows where a value
+came from.
 
 ```{r, eval = has_ocr}
 doc <- sc_parse(ex("scanned.pdf"), config = sc_config(ocr = "auto", ocr_language = "eng", ocr_dpi = 300))
@@ -37,6 +39,15 @@ sc_pages(doc)[, c("page", "image_only", "ocr_status")]
 sc_blocks(doc, page = 2)[, c("type", "method", "status", "text")]
 doc$spans[doc$spans$source == "ocr_tesseract", c("text", "x0", "y0", "x1", "y1", "confidence")][1:6, ]
 doc$warnings[, c("stage", "code", "message")]
+```
+
+`scanned_tables.pdf` is an image-only copy of the trial article. After
+OCR it gives the same two tables and sections as the born-digital file:
+
+```{r, eval = has_ocr}
+sc <- sc_parse(ex("scanned_tables.pdf"), config = sc_config(ocr = "auto"))
+sc_tables(sc)[, c("label", "n_rows", "n_cols", "method")]
+sc_table_to_matrix(sc, sc_tables(sc)$table_id[2])
 ```
 
 OCR words become spans with `source = "ocr_tesseract"`, boxes mapped to

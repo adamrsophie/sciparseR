@@ -3,7 +3,9 @@
 #' Adds derived records (data origin `"derived"`) computed from reported
 #' records. Each derived record stores the ids of its input records, the
 #' formula and the software that computed it, and is never mixed with
-#' reported values: the inputs keep their own records.
+#' reported values: the inputs keep their own records. Only records with
+#' status `"reported"` are inputs, so values that [sc_validate()] marked
+#' `"inconsistent"` are never used.
 #'
 #' Derivations:
 #' * `"percent"`: `100 * events / denominator` where a percentage was not

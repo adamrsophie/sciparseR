@@ -87,7 +87,10 @@ The context of each number comes only from explicit structure in the
 source: the subject of the sentence, a "for <outcome>" phrase after the
 measure, the arm named in "in the Drug A group", a table row label, a
 column header, a time point or analysis population in the table caption.
-The `binding` column records which of these was used:
+A restriction stated with the value ("among patients with diabetes", "in
+the subgroup of current smokers") goes into `population`; results with
+different populations are never compared with each other. The `binding`
+column records which of these was used:
 
 ```{r}
 unique(o$binding[o$field == "result"])

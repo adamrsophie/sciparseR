@@ -15,10 +15,11 @@ First release.
 * PDF layout: line segmentation, superscript detection, recursive XY-cut
   reading order with gutter detection, repeated header, footer and page
   number detection, conservative hyphenation repair with a document
-  vocabulary, paragraph continuation across pages, detection of 90 and
-  270 degree page rotation and image-only page detection.
+  vocabulary, paragraph continuation across pages, detection of 90, 180
+  and 270 degree page rotation and image-only page detection.
+  `sc_to_pdf_space()` converts boxes back to PDF user space.
 * PDF tables: caption anchored and uncaptioned detection, column intervals,
-  rule based spanning headers, header rows, wrapped labels, footnote
+  rule based spanning headers, header row and column spans, header rows, wrapped labels, footnote
   markers, missing value markers, table footnotes and conservative
   continuation joining (`joined` versus `possible`).
 * Figures from captions and rendered ink, equations with labels, Vancouver
@@ -30,7 +31,9 @@ First release.
   named entities are kept as characters. `sc_fetch_pmc()`
   downloads open access articles and only with `allow_network = TRUE`.
 * Optional OCR of image-only pages with tesseract, with per page status and
-  word confidence. OCR pages get paragraphs only.
+  word confidence. OCR words go through the same line, block, section,
+  table and figure steps as a text layer; elements built from them say so
+  in their method or status.
 
 ## Extraction
 
@@ -42,9 +45,10 @@ First release.
   outcomes.
 * Numerical results from text and tables as atomic records grouped into
   observations, bound to outcome, arm, comparator, time point, analysis
-  set, effect measure and adjustment, with a `binding` column naming the
+  set, population, effect measure and adjustment, with a `binding` column naming the
   source of each binding. Unlabeled dispersions are `ambiguous`; empty and
-  dashed cells are `not_reported` and `missing`.
+  dashed cells are `not_reported` and `missing`. Abbreviated measures
+  that the document never defines are `ambiguous`.
 * Evidence for every value: checksum, page, section, block or cell, exact
   text, character offsets, bounding box and XPath.
 * Language model engine through ellmer: every ellmer provider
@@ -56,15 +60,20 @@ First release.
   against the quote and passage.
 * `sc_validate()` with count, confidence interval, ratio, p-value, p and
   CI agreement, binding, dispersion, sample size, time point and text
-  versus table conflict rules; justified exceptions; `sc_review_queue()`,
+  versus table conflict rules; values failing an error rule become
+  `inconsistent` and are not used for derivation; justified exceptions; `sc_review_queue()`,
   `sc_correct()` and `sc_derive()`.
 
 ## Output and tooling
 
 * Exports to JSON (with JSON Schema and a reader), Markdown, CSV,
   Parquet, JATS, evidence tables and per table CSV files.
-* `sc_parse_batch()` with a content addressed cache, `sc_evaluate()`
-  against ground truth, figure crops and evidence highlighting, GROBID TEI
+* `sc_parse_batch()` with a content addressed cache and a `keep = FALSE`
+  mode for large corpora (`sc_batch_document()` reads documents back),
+  `sc_evaluate()` against ground truth (block recall, character error
+  rate, reading order, sections, table detection, cells, spans, GriTS-Con
+  and TEDS), `sc_evaluate_extraction()` for values and their bindings,
+  `sc_benchmark()` for time and memory, figure crops and evidence highlighting, GROBID TEI
   comparison and a checksum verified ONNX model registry (no parser step
   uses ONNX models yet).
 * `sc_derive()` computes the SD from an SE only with the number analyzed

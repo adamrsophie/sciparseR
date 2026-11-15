@@ -38,6 +38,16 @@ b2$status[, c("file", "cached", "seconds")]
 sc_cache_info(cache)[, c("source", "doc_id", "package_version", "size_bytes")]
 ```
 
+For large corpora, `keep = FALSE` writes each document to the cache and
+keeps only the status table in memory; `sc_batch_document()` reads one
+document back when you need it:
+
+```{r}
+lean <- sc_parse_batch(files[1:4], cache_dir = cache, keep = FALSE)
+lean$status[, c("file", "status", "cached")]
+sc_tables(sc_batch_document(lean, "trial_tables.pdf"))[, c("label", "n_rows", "n_cols")]
+```
+
 `workers` runs files in parallel with forked processes on Unix-alike
 systems. Cache entries are written to a temporary file and renamed, so an
 interrupted run never leaves a half written entry.

@@ -51,6 +51,7 @@ reference:
   - sc_parse
   - sc_config
   - sc_parse_batch
+  - sc_batch_document
   - sc_cache_info
   - sc_fetch_pmc
 - title: Document accessors
@@ -66,6 +67,7 @@ reference:
   - entities
   - sc_figure_crop
   - sc_highlight
+  - sc_to_pdf_space
 - title: Schemas and extraction
   contents:
   - sc_schema
@@ -90,5 +92,7 @@ reference:
 - title: Evaluation and external tools
   contents:
   - sc_evaluate
+  - sc_evaluate_extraction
+  - sc_benchmark
   - sc_read_grobid
   - models

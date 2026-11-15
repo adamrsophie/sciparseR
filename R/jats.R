@@ -68,7 +68,6 @@ parse_jats <- function(path, cfg, log) {
     bid
   }
   # abstract as a section
-  sec_of <- list()
   sec_counter <- 0L
   new_section <- function(node, title, level, parent, label) {
     sec_counter <<- sec_counter + 1L

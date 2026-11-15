@@ -108,8 +108,10 @@ sc_export_evidence(x, "evidence.csv")
 sciparseR does not reconstruct LaTeX from PDF text, digitize figures or
 Kaplan-Meier curves, or run learned layout and table models in this
 version (the ONNX registry verifies and loads models, but no parser step
-uses them yet). PDF tables get column spans only; OCR pages get
-paragraphs only; a page rotated by 180 degrees is not detected; the population of a result is not bound. When a value cannot be recovered with certainty it says so in
+uses them yet). Table detection on PDF pages relies on captions, aligned
+text and ruling lines, so tables without a caption or clear alignment can
+be missed; OCR quality depends on the scan. When a value cannot be
+recovered with certainty it says so in
 the status column instead of guessing. See the
 [articles](https://adamrsophie.github.io/sciparseR/articles/) for the
 document model, tables, extraction, validation, language models, OCR

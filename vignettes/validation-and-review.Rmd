@@ -63,6 +63,14 @@ Each record gets the worst result of the rules that touched it:
 table(x$records$validation_status, useNA = "ifany")
 ```
 
+A reported value that fails an error rule gets the status
+`inconsistent`. It stays in the records and in the review queue, but
+`sc_derive()` never uses it as an input:
+
+```{r}
+x$records[x$records$status == "inconsistent", c("field", "statistic", "value", "outcome")]
+```
+
 ## The review queue
 
 ```{r}

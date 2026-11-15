@@ -61,42 +61,12 @@
       "page": 1,
       "header_rows": 2,
       "cells": [
-        [
-          "Characteristic",
-          "Treatment group",
-          "",
-          "P value"
-        ],
-        [
-          "",
-          "Drug A (n = 120)",
-          "Placebo (n = 118)",
-          ""
-        ],
-        [
-          "Age, years, mean (SD)",
-          "61.2 (9.8)",
-          "60.7 (10.1)",
-          "0.70"
-        ],
-        [
-          "Female sex, n (%)",
-          "54 (45.0)",
-          "50 (42.4)",
-          "0.69"
-        ],
-        [
-          "BMI, kg/m2, mean (SD)",
-          "27.1 (4.2)",
-          "–",
-          ""
-        ],
-        [
-          "Diabetes, n (%)a",
-          "30 (25.0)",
-          "28 (23.7)",
-          "0.82"
-        ]
+        ["Characteristic", "Treatment group", "", "P value"],
+        ["", "Drug A (n = 120)", "Placebo (n = 118)", ""],
+        ["Age, years, mean (SD)", "61.2 (9.8)", "60.7 (10.1)", "0.70"],
+        ["Female sex, n (%)", "54 (45.0)", "50 (42.4)", "0.69"],
+        ["BMI, kg/m2, mean (SD)", "27.1 (4.2)", "–", ""],
+        ["Diabetes, n (%)a", "30 (25.0)", "28 (23.7)", "0.82"]
       ],
       "spans": [
         {
@@ -129,34 +99,10 @@
       "page": 1,
       "header_rows": 1,
       "cells": [
-        [
-          "Outcome",
-          "Drug A",
-          "Placebo",
-          "HR (95% CI)",
-          "P"
-        ],
-        [
-          "Primary outcome, n/N (%)",
-          "24/120 (20.0)",
-          "36/118 (30.5)",
-          "0.62 (0.41–0.94)",
-          "0.02"
-        ],
-        [
-          "All-cause death, n/N (%)",
-          "5/120 (4.2)",
-          "7/118 (5.9)",
-          "0.71 (0.23–2.24)",
-          "0.56"
-        ],
-        [
-          "Change in SBP, mm Hg, mean (SE)",
-          "-8.1 (1.2)",
-          "-3.4 (1.1)",
-          "",
-          "0.004"
-        ]
+        ["Outcome", "Drug A", "Placebo", "HR (95% CI)", "P"],
+        ["Primary outcome, n/N (%)", "24/120 (20.0)", "36/118 (30.5)", "0.62 (0.41–0.94)", "0.02"],
+        ["All-cause death, n/N (%)", "5/120 (4.2)", "7/118 (5.9)", "0.71 (0.23–2.24)", "0.56"],
+        ["Change in SBP, mm Hg, mean (SE)", "-8.1 (1.2)", "-3.4 (1.1)", "", "0.004"]
       ],
       "spans": [],
       "continued_of": null,
@@ -166,5 +112,605 @@
   ],
   "figures": [],
   "equations": [],
-  "references": []
+  "references": [],
+  "extraction": [
+    {
+      "field": "randomized_n",
+      "statistic": "count",
+      "value": 238,
+      "source": "text",
+      "page": 1
+    },
+    {
+      "field": "analyzed_n",
+      "statistic": "count",
+      "value": 230,
+      "source": "text",
+      "page": 1
+    },
+    {
+      "field": "arm_n",
+      "statistic": "count",
+      "value": 120,
+      "source": "text",
+      "page": 1,
+      "arm": "Drug A"
+    },
+    {
+      "field": "arm_n",
+      "statistic": "count",
+      "value": 118,
+      "source": "text",
+      "page": 1,
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "events",
+      "value": 24,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "denominator",
+      "value": 120,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "percent",
+      "value": 20,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "events",
+      "value": 36,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "denominator",
+      "value": 118,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "percent",
+      "value": 30.5,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "estimate",
+      "value": 0.62,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A",
+      "comparator": "placebo",
+      "effect_measure": "hazard_ratio"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_lower",
+      "value": 0.41,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_upper",
+      "value": 0.94,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "p_value",
+      "value": 0.02,
+      "source": "text",
+      "page": 1,
+      "outcome": "primary outcome",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "estimate",
+      "value": 0.6,
+      "source": "text",
+      "page": 1,
+      "analysis_set": "per_protocol",
+      "effect_measure": "hazard_ratio"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_lower",
+      "value": 0.39,
+      "source": "text",
+      "page": 1,
+      "analysis_set": "per_protocol"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_upper",
+      "value": 0.93,
+      "source": "text",
+      "page": 1,
+      "analysis_set": "per_protocol"
+    },
+    {
+      "field": "result",
+      "statistic": "mean",
+      "value": 8.1,
+      "source": "text",
+      "page": 1,
+      "outcome": "systolic blood pressure",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "dispersion",
+      "value": 13.2,
+      "source": "text",
+      "page": 1,
+      "outcome": "systolic blood pressure",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "mean",
+      "value": 61.2,
+      "source": "table",
+      "page": 1,
+      "outcome": "age",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "sd",
+      "value": 9.8,
+      "source": "table",
+      "page": 1,
+      "outcome": "age",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "mean",
+      "value": 60.7,
+      "source": "table",
+      "page": 1,
+      "outcome": "age",
+      "arm": "placebo"
+    },
+    {
+      "field": "baseline",
+      "statistic": "sd",
+      "value": 10.1,
+      "source": "table",
+      "page": 1,
+      "outcome": "age",
+      "arm": "placebo"
+    },
+    {
+      "field": "baseline",
+      "statistic": "p_value",
+      "value": 0.7,
+      "source": "table",
+      "page": 1,
+      "outcome": "age"
+    },
+    {
+      "field": "baseline",
+      "statistic": "count",
+      "value": 54,
+      "source": "table",
+      "page": 1,
+      "outcome": "female sex",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "percent",
+      "value": 45,
+      "source": "table",
+      "page": 1,
+      "outcome": "female sex",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "count",
+      "value": 50,
+      "source": "table",
+      "page": 1,
+      "outcome": "female sex",
+      "arm": "placebo"
+    },
+    {
+      "field": "baseline",
+      "statistic": "percent",
+      "value": 42.4,
+      "source": "table",
+      "page": 1,
+      "outcome": "female sex",
+      "arm": "placebo"
+    },
+    {
+      "field": "baseline",
+      "statistic": "p_value",
+      "value": 0.69,
+      "source": "table",
+      "page": 1,
+      "outcome": "female sex"
+    },
+    {
+      "field": "baseline",
+      "statistic": "mean",
+      "value": 27.1,
+      "source": "table",
+      "page": 1,
+      "outcome": "bmi",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "sd",
+      "value": 4.2,
+      "source": "table",
+      "page": 1,
+      "outcome": "bmi",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "count",
+      "value": 30,
+      "source": "table",
+      "page": 1,
+      "outcome": "diabetes",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "percent",
+      "value": 25,
+      "source": "table",
+      "page": 1,
+      "outcome": "diabetes",
+      "arm": "Drug A"
+    },
+    {
+      "field": "baseline",
+      "statistic": "count",
+      "value": 28,
+      "source": "table",
+      "page": 1,
+      "outcome": "diabetes",
+      "arm": "placebo"
+    },
+    {
+      "field": "baseline",
+      "statistic": "percent",
+      "value": 23.7,
+      "source": "table",
+      "page": 1,
+      "outcome": "diabetes",
+      "arm": "placebo"
+    },
+    {
+      "field": "baseline",
+      "statistic": "p_value",
+      "value": 0.82,
+      "source": "table",
+      "page": 1,
+      "outcome": "diabetes"
+    },
+    {
+      "field": "result",
+      "statistic": "events",
+      "value": 24,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "denominator",
+      "value": 120,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "percent",
+      "value": 20,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "events",
+      "value": 36,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "denominator",
+      "value": 118,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "percent",
+      "value": 30.5,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "estimate",
+      "value": 0.62,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A",
+      "comparator": "placebo",
+      "effect_measure": "hazard_ratio"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_lower",
+      "value": 0.41,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_upper",
+      "value": 0.94,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "p_value",
+      "value": 0.02,
+      "source": "table",
+      "page": 1,
+      "outcome": "primary outcome",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat"
+    },
+    {
+      "field": "result",
+      "statistic": "events",
+      "value": 5,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "denominator",
+      "value": 120,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "percent",
+      "value": 4.2,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "events",
+      "value": 7,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "denominator",
+      "value": 118,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "percent",
+      "value": 5.9,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "estimate",
+      "value": 0.71,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A",
+      "comparator": "placebo",
+      "effect_measure": "hazard_ratio"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_lower",
+      "value": 0.23,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "ci_upper",
+      "value": 2.24,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A",
+      "comparator": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "p_value",
+      "value": 0.56,
+      "source": "table",
+      "page": 1,
+      "outcome": "all-cause death",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat"
+    },
+    {
+      "field": "result",
+      "statistic": "mean",
+      "value": -8.1,
+      "source": "table",
+      "page": 1,
+      "outcome": "change in sbp",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "se",
+      "value": 1.2,
+      "source": "table",
+      "page": 1,
+      "outcome": "change in sbp",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "Drug A"
+    },
+    {
+      "field": "result",
+      "statistic": "mean",
+      "value": -3.4,
+      "source": "table",
+      "page": 1,
+      "outcome": "change in sbp",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "se",
+      "value": 1.1,
+      "source": "table",
+      "page": 1,
+      "outcome": "change in sbp",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat",
+      "arm": "placebo"
+    },
+    {
+      "field": "result",
+      "statistic": "p_value",
+      "value": 0.004,
+      "source": "table",
+      "page": 1,
+      "outcome": "change in sbp",
+      "timepoint": "12 months",
+      "analysis_set": "intention_to_treat"
+    }
+  ]
 }

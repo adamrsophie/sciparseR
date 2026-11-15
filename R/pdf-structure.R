@@ -134,7 +134,6 @@ build_page_blocks <- function(ord, lines, page, body_size, page_h, vocab, cfg,
 }
 
 classify_block <- function(ls, body_size, page, page_h, is_head) {
-  txt <- paste(ls$text, collapse = " ")
   fs <- stats::median(ls$font_size)
   if (line_is_caption(ls$text[1])) return("caption")
   if (is_head) {

@@ -43,7 +43,8 @@ cells[, c("row", "col", "row_span", "col_span", "is_header", "text", "markers", 
 Things to notice:
 
 * "Treatment group" spans two columns (`col_span = 2`): the rule under it
-  in the PDF says so.
+  in the PDF says so. "Characteristic" and "P value" span both header rows
+  (`row_span = 2`): the header cells below them are empty.
 * The table has two header rows.
 * The superscript "a" after "Diabetes, n (%)" is stored in `markers` and
   removed from `text`; the original is in `text_raw`.

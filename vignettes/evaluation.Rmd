@@ -30,6 +30,7 @@ expected cell grid of every table.
 ```{r}
 dir <- system.file("extdata", package = "sciparseR")
 pdfs <- list.files(dir, pattern = "\\.pdf$")
+pdfs <- pdfs[file.exists(file.path(dir, sub("\\.pdf$", ".truth.json", pdfs)))]
 pdfs
 ```
 
@@ -41,8 +42,21 @@ pdfs
   truth order and parsed order, and the share of block pairs in the
   correct order.
 * `section_precision`, `section_recall`, `section_f1` on heading titles.
+* `character_error_rate`: Levenshtein edits between each truth block and
+  its matched parsed block, over all truth characters; an unmatched truth
+  block counts in full.
 * `table_recall`, `table_structure` (rows and columns), `table_header_rows`,
-  `table_cell_accuracy`, `table_spans`.
+  `table_cell_accuracy`, `table_spans` (row and column spans).
+* `table_detection_precision` and `table_detection_recall` at IoU 0.5 on
+  the same page. The fixture truth gives the top and bottom of each table,
+  so their IoU is on the vertical extent; a truth file with `x0` and `x1`
+  is scored on the full box.
+* `table_grits_con`: GriTS-Con (Smock et al. 2023) with the factored row
+  and column alignment, on grids with spanned text in every covered
+  position.
+* `table_teds`: TEDS (Zhong et al. 2020), one minus the tree edit
+  distance (Zhang and Shasha) between the HTML-like trees of the two
+  tables, divided by the size of the larger tree.
 * Ratios of found to expected figures, equations and references, DOI
   recall, image-only page detection.
 
@@ -53,7 +67,8 @@ res <- do.call(rbind, lapply(pdfs, function(f) {
 }))
 wide <- reshape(res[, c("file", "metric", "value")], idvar = "file", timevar = "metric", direction = "wide")
 names(wide) <- sub("^value\\.", "", names(wide))
-wide[, c("file", "block_recall", "reading_order_pairs", "section_f1", "table_cell_accuracy")]
+wide[, c("file", "block_recall", "character_error_rate", "reading_order_pairs", "section_f1",
+         "table_cell_accuracy", "table_grits_con", "table_teds")]
 ```
 
 The per table detail is an attribute:
@@ -69,9 +84,29 @@ Perfect scores on the fixtures show that each component works on the case
 it was built for. They do not show performance on real articles, whose
 layouts are far more varied. A benchmark on real open access articles,
 with their JATS version as the reference, and a comparison with GROBID,
-Docling and Marker are planned for a later version. `sc_evaluate()` does
-not yet compute a character error rate, IoU based table detection, GriTS
-or TEDS, or extraction accuracy.
+Docling and Marker are planned for a later version; none of them was run
+for this release.
+
+## Extraction accuracy
+
+The truth file of `trial_tables.pdf` also lists the 61 values the fixture
+generator wrote into the text and tables, each with the context a careful
+reader binds to it. `sc_evaluate_extraction()` matches extracted values
+to them and scores the bindings:
+
+```{r}
+x <- sc_extract(sc_parse(file.path(dir, "trial_tables.pdf")), "clinical_trial")
+sc_evaluate_extraction(x, file.path(dir, "trial_tables.truth.json"))
+```
+
+## Time and memory
+
+`sc_benchmark()` parses each file a few times and reports the median
+time and the growth of the R heap:
+
+```{r}
+sc_benchmark(file.path(dir, c("two_column.pdf", "trial_tables.pdf")), times = 2)
+```
 
 ## Evaluating your own documents
 
