@@ -1,0 +1,91 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Statistical Model",
+      "section": "Statistical Model"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "The outcome was modelled with a linear regression of the following form, fitted by least squares.",
+      "section": "Statistical Model"
+    },
+    {
+      "page": 1,
+      "type": "caption",
+      "text": "Figure 1. Survival curves by treatment group (synthetic data).",
+      "section": "Statistical Model"
+    },
+    {
+      "page": 1,
+      "type": "caption",
+      "text": "Table 3. Adverse events by system organ class",
+      "section": "Statistical Model"
+    },
+    {
+      "page": 2,
+      "type": "caption",
+      "text": "Table 3 (continued). Adverse events by system organ class",
+      "section": "Statistical Model"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Statistical Model",
+      "level": 1,
+      "page": 1
+    }
+  ],
+  "tables": [
+    {
+      "label": "Table 3",
+      "page": 1,
+      "header_rows": 1,
+      "cells": [
+        ["Event", "Drug A", "Placebo"],
+        ["Headache", "12", "9"],
+        ["Dizziness", "8", "5"],
+        ["Nausea", "6", "6"],
+        ["Fatigue", "5", "4"],
+        ["Cough", "4", "3"],
+        ["Rash", "3", "1"]
+      ],
+      "spans": [],
+      "continued_of": null,
+      "top": 404.1,
+      "bottom": 504.9
+    },
+    {
+      "label": "Table 3",
+      "page": 2,
+      "header_rows": 1,
+      "cells": [
+        ["Event", "Drug A", "Placebo"],
+        ["Insomnia", "2", "2"],
+        ["Edema", "2", "0"],
+        ["Syncope", "1", "0"]
+      ],
+      "spans": [],
+      "continued_of": "Table 3",
+      "top": 88,
+      "bottom": 145.6
+    }
+  ],
+  "figures": [
+    {
+      "page": 1,
+      "label": "Figure 1",
+      "box": [150, 144.1, 460, 344.1]
+    }
+  ],
+  "equations": [
+    {
+      "page": 1,
+      "text": "y = β0 + β1 x + ε",
+      "label": "(1)"
+    }
+  ],
+  "references": []
+}

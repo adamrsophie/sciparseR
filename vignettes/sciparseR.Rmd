@@ -1,0 +1,145 @@
+---
+title: "Getting started with sciparseR"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with sciparseR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 100)
+```
+
+sciparseR reads scientific articles, PDF or JATS XML, and returns two
+things: a **document model** that describes what is on each page and where,
+and an **extraction** that lists the scientific facts found in the document
+together with the exact text that supports each of them. This article walks
+through the whole workflow on a small synthetic trial report that ships
+with the package.
+
+```{r}
+library(sciparseR)
+pdf <- system.file("extdata", "trial_tables.pdf", package = "sciparseR")
+```
+
+## 1. Parse
+
+`sc_parse()` detects the format from the file content and runs the parser.
+No network access and no external program is needed.
+
+```{r}
+doc <- sc_parse(pdf)
+doc
+```
+
+The printout already shows the provenance that every later step relies
+on: a document identifier derived from the SHA-256 checksum of the file,
+the parser backend and versions, and the schema version of the model.
+
+```{r}
+str(doc$processing[c("package_version", "r_version", "config_hash")])
+doc$processing$backend
+```
+
+## 2. Look at the structure
+
+The document is a list of tidy data frames. Blocks are paragraphs,
+headings, captions, tables and so on, in reading order:
+
+```{r}
+b <- sc_blocks(doc)
+b[, c("block_id", "page", "type", "reading_order")]
+```
+
+Sections form a tree with canonical labels such as `methods` and
+`results`, which the extraction layer uses to decide where to look:
+
+```{r}
+sc_sections(doc)[, c("section_id", "level", "title", "label")]
+```
+
+The text can be reconstructed in reading order, without running headers
+and page numbers:
+
+```{r}
+cat(substr(sc_text(doc), 1, 600))
+```
+
+## 3. Tables
+
+Tables keep their cell structure: spans, header rows, footnote markers and
+missing value markers. Data frames are a view on top of the cells.
+
+```{r}
+sc_tables(doc)[, c("table_id", "label", "n_rows", "n_cols", "n_header_rows", "ruled")]
+sc_table_to_dataframe(doc, "Table 2")
+```
+
+## 4. Extract
+
+The rules engine is deterministic: same document, same configuration, same
+result.
+
+```{r}
+x <- sc_extract(doc, "clinical_trial")
+x
+```
+
+Study level facts are plain records:
+
+```{r}
+r <- x$records
+r[is.na(r$observation_id) & r$status == "reported", c("field", "value", "arm")]
+```
+
+Numerical results are grouped into observations. Each number keeps the
+context it was bound to and where that binding came from:
+
+```{r}
+w <- sc_observations(x, wide = TRUE)
+w[w$field == "result", c("outcome", "arm", "comparator", "timepoint", "analysis_set",
+                         "effect_measure", "estimate", "ci_lower", "ci_upper", "p_value")]
+```
+
+## 5. Evidence
+
+Every value points to its evidence: page, section, block or table cell,
+the exact source text, character offsets and a bounding box.
+
+```{r}
+ev <- sc_evidence(x)
+ev[ev$field == "randomized_n", c("value", "page", "section_label", "char_start", "char_end", "bbox_scope")]
+with(ev[ev$field == "randomized_n", ][1, ], substring(text, char_start, char_end))
+```
+
+## 6. Validate and review
+
+```{r}
+x <- sc_validate(x)
+table(x$validation$rule, x$validation$result)
+sc_review_queue(x)[, c("priority", "field", "statistic", "value", "reason")]
+```
+
+The review queue lists what a person should look at: here an estimate in
+a sentence that does not name its outcome, a plus-minus value whose type
+(SD or SE) the authors never stated, and cells that are empty or marked
+missing in the source. sciparseR never fills these gaps on its own.
+
+## 7. Export
+
+```{r}
+out <- tempfile(fileext = ".json")
+sc_export_json(x, out)
+y <- sc_read_json(out)
+identical(y$records, x$records)
+```
+
+## Where next
+
+* `vignette("document-model")`: identifiers, coordinates and statuses.
+* `vignette("extraction")` and `vignette("validation-and-review")`: the
+  extraction layer in depth.
+* `vignette("language-models")`: using Anthropic, OpenAI, OpenRouter, any
+  other ellmer provider or a ChatGPT plan, with quote verification.

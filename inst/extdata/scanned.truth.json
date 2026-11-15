@@ -1,0 +1,28 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Scanned Supplement",
+      "section": "Scanned Supplement"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "The next page was scanned and contains no extractable text.",
+      "section": null
+    }
+  ],
+  "sections": [
+    {
+      "title": "Scanned Supplement",
+      "level": 1,
+      "page": 1
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "equations": [],
+  "references": [],
+  "image_only_pages": 2
+}

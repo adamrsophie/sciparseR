@@ -1,0 +1,61 @@
+Package: sciparseR
+Title: Provenance-Aware Scientific Document Parsing and Extraction
+Version: 0.1.0
+Authors@R:
+    person("Adam R", "Sophie", email = "adamrsophie@gmail.com",
+           role = c("aut", "cre", "cph"))
+Description: Turns scientific PDF documents and 'JATS' XML into a
+    structured, versioned document model with explicit source provenance.
+    Born-digital PDF files are parsed from word positions with
+    deterministic reading order reconstruction (line segmentation,
+    recursive XY-cut with column detection, repeated header and footer
+    detection, conservative hyphenation repair), sections, captions,
+    footnotes, equations, figures, references and in-text citations.
+    Tables are reconstructed as cells with row and column spans, header
+    levels, missing value markers and source boxes. 'JATS' XML is a first
+    class source whose semantic structure is preserved. A schema-driven
+    extraction layer with a deterministic rules engine and an optional
+    language model adapter extracts study design, population,
+    intervention, comparator, outcome and numerical results, binding each
+    number to its arm, outcome, time point, analysis set and effect
+    measure. Every extracted value keeps an evidence record (page,
+    section, table cell, exact text, character offsets, bounding box) and
+    a status separating reported, derived, model inferred and human
+    corrected data. Deterministic validators check counts, confidence
+    intervals, ratios and p-values and flag contradictions between text
+    and tables. Results export to 'JSON', 'Markdown', 'CSV', 'Parquet' and
+    'JATS'. Optical character recognition and 'ONNX' models are optional.
+License: GPL-3
+Encoding: UTF-8
+Language: en-US
+Roxygen: list(markdown = TRUE)
+Depends:
+    R (>= 4.1.0)
+Imports:
+    digest,
+    graphics,
+    grDevices,
+    jsonlite,
+    parallel,
+    pdftools,
+    stats,
+    tools,
+    utils,
+    xml2
+Suggests:
+    arrow,
+    ellmer,
+    ellmercodex,
+    knitr,
+    nativeORT,
+    png,
+    qpdf,
+    rmarkdown,
+    tesseract,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+URL: https://adamrsophie.github.io/sciparseR/,
+    https://github.com/adamrsophie/sciparseR
+BugReports: https://github.com/adamrsophie/sciparseR/issues
+Config/roxygen2/version: 8.1.1

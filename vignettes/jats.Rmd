@@ -1,0 +1,104 @@
+---
+title: "JATS XML"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{JATS XML}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 100)
+library(sciparseR)
+```
+
+JATS (Journal Article Tag Suite) is the XML format used by PubMed Central
+and most publishers. When a JATS version of an article exists it is the
+best source: sections, tables and references are tagged by the publisher,
+so nothing has to be guessed. sciparseR reads JATS into the same document
+model as PDF, so all accessors, the extraction layer, validation and
+exports work the same way.
+
+```{r}
+j <- sc_parse(system.file("extdata", "trial_article.xml", package = "sciparseR"))
+j
+```
+
+## Metadata
+
+```{r}
+md <- sc_metadata(j)
+str(md[c("title", "journal", "year", "doi", "pmid", "pmcid", "license")])
+md$field_sources
+```
+
+## Structure without coordinates
+
+JATS has no page geometry. Blocks have an XPath instead of a box, and
+the coordinate columns are `NA`:
+
+```{r}
+head(sc_blocks(j)[, c("block_id", "type", "xpath")], 6)
+sc_sections(j)[, c("level", "title", "label")]
+```
+
+## Tables with spans
+
+`rowspan` and `colspan` are kept, and `<thead>` rows are header rows:
+
+```{r}
+c1 <- sc_table_cells(j, sc_tables(j)$table_id[1])
+c1[c1$is_header, c("row", "col", "row_span", "col_span", "text")]
+sc_table_to_dataframe(j, sc_tables(j)$table_id[1])
+```
+
+## Equations, references and citations
+
+Display formulas keep their TeX and MathML, with
+`latex_status = "source_markup"` to say the LaTeX came from the source:
+
+```{r}
+sc_equations(j)[, c("label", "latex", "latex_status")]
+substr(sc_equations(j)$mathml, 1, 80)
+```
+
+References come from `<ref>` elements with their identifiers; citations
+from `<xref ref-type="bibr">`, so links are exact:
+
+```{r}
+sc_references(j)[, c("ref_id", "authors", "year", "journal", "doi", "pmid")]
+sc_citations(j)[, c("marker", "ref_id", "status")]
+j$supplementary[, c("label", "caption", "href")]
+```
+
+## Safety
+
+XML is read without network access and without entity substitution, so a
+file cannot make the parser fetch URLs or read local files.
+
+## Getting JATS from PubMed Central
+
+`sc_fetch_pmc()` downloads the JATS XML of an open access article. It
+contacts NCBI only when you set `allow_network = TRUE`, and by default it
+refuses articles whose license is not an open license.
+
+```{r, eval = FALSE}
+f <- sc_fetch_pmc("PMC1234567", dest = tempdir(), allow_network = TRUE)
+doc <- sc_parse(f)
+```
+
+## PDF and JATS of the same article
+
+The fixture `trial_article.xml` and `trial_tables.pdf` describe the same
+synthetic trial. The rules engine finds the same numbers in both:
+
+```{r}
+pdf <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"))
+hr <- function(d) {
+  o <- sc_observations(sc_extract(d, "numerical_results"))
+  o[which(o$statistic == "estimate" & !is.na(o$timepoint)), c("outcome", "effect_measure", "value")]
+}
+hr(pdf)
+hr(j)
+```

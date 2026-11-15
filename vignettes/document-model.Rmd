@@ -1,0 +1,114 @@
+---
+title: "The document model"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{The document model}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 100)
+library(sciparseR)
+```
+
+An `sc_document` is a plain R list of data frames plus three metadata
+lists. It is designed so that any element can be traced back to the
+source file, and any later result can be traced back to an element.
+
+```{r}
+doc <- sc_parse(system.file("extdata", "single_column.pdf", package = "sciparseR"))
+summary(doc)
+```
+
+## Entities
+
+| Table | One row per | Key columns |
+|---|---|---|
+| `pages` | page | size, rotation, text layer, image-only flag, OCR status, columns |
+| `spans` | word | coordinates, font, superscript flag, line and block, source, confidence |
+| `lines` | text line segment | coordinates, font size, bold ratio |
+| `blocks` | paragraph, heading, caption, table, figure, header, footer, ... | type, reading order, section, continuation |
+| `sections` | heading | level, number, title, canonical label, parent |
+| `tables`, `cells` | table, cell | spans, header flag, markers, missing tokens, continuation |
+| `figures`, `captions` | figure, caption | region, label, target |
+| `equations` | display equation | text, LaTeX and MathML when available, status |
+| `footnotes` | footnote | scope (page or table), marker |
+| `references`, `citations` | reference, citation | parsed fields, identifiers, link status |
+| `supplementary` | supplementary file (JATS) | label, caption, link |
+| `warnings` | parser warning | stage, code, page, element |
+
+Every entity table has the same columns for every document, even when it
+has no rows, so code written against one document works on all of them.
+
+```{r}
+names(doc$cells)
+nrow(doc$cells)
+```
+
+## Identifiers
+
+Identifiers are stable for a given file and configuration: parsing the
+same file twice yields the same ids. They encode the page so that they
+stay readable: `b-p002-0003` is the third block of page 2,
+`t-p001-0001` the first table of page 1, `r-002` the second reference.
+The document id is `doc-` followed by the first 16 hexadecimal digits of
+the file's SHA-256.
+
+```{r}
+doc$doc_id
+substr(doc$source$sha256, 1, 16)
+identical(sc_parse(doc$source$path)$blocks$block_id, doc$blocks$block_id)
+```
+
+## Coordinates
+
+Coordinates are PDF points (1/72 inch) with the origin at the top-left
+corner of the page **as displayed**: `x0 < x1` from left to right and
+`y0 < y1` from top to bottom. For pages with a `/Rotate` entry, the
+coordinates refer to the upright page, which is what a reader sees and
+what `sc_figure_crop()` and `sc_highlight()` render.
+
+```{r}
+sc_pages(doc)[, c("page", "width", "height", "rotation", "n_columns")]
+sc_source(doc, "b-p001-0005")[, c("element_type", "page", "x0", "y0", "x1", "y1")]
+```
+
+JATS documents have no geometry. Their elements carry an XPath instead,
+and all coordinate columns are `NA`. sciparseR never invents coordinates.
+
+## Methods and statuses
+
+Each block, table and figure records the method that produced it and a
+status. The method says *how* it was found; the status says *how sure*
+the parser is.
+
+```{r}
+unique(doc$blocks[, c("type", "method")])
+```
+
+Examples of statuses: a table continuation is `joined` only when the
+caption says "continued" and the columns match, otherwise `possible`; an
+equation without source markup has `latex_status = "not_reconstructed"`;
+a page without a text layer has `ocr_status = "needed"`.
+
+## Warnings
+
+Problems are recorded instead of being hidden:
+
+```{r}
+scan <- sc_parse(system.file("extdata", "scanned.pdf", package = "sciparseR"))
+scan$warnings
+```
+
+## Provenance of the run
+
+```{r}
+doc$source[c("file_name", "format", "size_bytes")]
+doc$processing$config_hash
+sc_config()
+```
+
+The configuration hash changes whenever any setting changes, which is how
+the batch cache knows when a file has to be parsed again.

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE article PUBLIC "-//NLM//DTD JATS (Z39.96) Journal Archiving and Interchange DTD v1.3 20210610//EN" "JATS-archivearticle1-3.dtd">
+<article xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:mml="http://www.w3.org/1998/Math/MathML" article-type="research-article" dtd-version="1.3" xml:lang="en">
+  <front>
+    <journal-meta>
+      <journal-id journal-id-type="nlm-ta">Synth Trials J</journal-id>
+      <journal-title-group>
+        <journal-title>Synthetic Trials Journal</journal-title>
+      </journal-title-group>
+      <issn pub-type="epub">0000-0000</issn>
+    </journal-meta>
+    <article-meta>
+      <article-id pub-id-type="doi">10.1000/stj.2026.0042</article-id>
+      <article-id pub-id-type="pmid">39999999</article-id>
+      <article-id pub-id-type="pmcid">PMC9999999</article-id>
+      <title-group>
+        <article-title>Drug A Versus Placebo in Hypertension: a Randomized Controlled Trial</article-title>
+      </title-group>
+      <contrib-group>
+        <contrib contrib-type="author">
+          <name><surname>Doe</surname><given-names>Jane</given-names></name>
+        </contrib>
+        <contrib contrib-type="author">
+          <name><surname>M&#xfc;ller</surname><given-names>Jos&#xe9;</given-names></name>
+        </contrib>
+      </contrib-group>
+      <pub-date pub-type="epub"><day>15</day><month>11</month><year>2026</year></pub-date>
+      <volume>12</volume>
+      <elocation-id>e42</elocation-id>
+      <permissions>
+        <license license-type="open-access" xlink:href="https://creativecommons.org/licenses/by/4.0/">
+          <license-p>This is an open access article distributed under the terms of the Creative Commons Attribution License.</license-p>
+        </license>
+      </permissions>
+      <abstract>
+        <sec id="abs1"><title>Background</title><p>Hypertension is common and often untreated.</p></sec>
+        <sec id="abs2"><title>Methods</title><p>We randomly assigned 238 adults to Drug A or placebo.</p></sec>
+      </abstract>
+      <kwd-group><kwd>hypertension</kwd><kwd>randomized controlled trial</kwd></kwd-group>
+    </article-meta>
+  </front>
+  <body>
+    <sec id="s1">
+      <title>Introduction</title>
+      <p id="p1">High blood pressure is a leading cause of cardiovascular disease <xref ref-type="bibr" rid="r1">1</xref>. Earlier trials of related agents were small <xref ref-type="bibr" rid="r2">2</xref>,<xref ref-type="bibr" rid="r3">3</xref>.</p>
+    </sec>
+    <sec id="s2">
+      <title>Methods</title>
+      <sec id="s2-1">
+        <title>Design and participants</title>
+        <p id="p2">This was a multicentre, double-blind, randomized, placebo-controlled trial. Adults aged 18 years or older with hypertension were eligible. Exclusion criteria included pregnancy and severe renal disease. A total of 238 patients were randomly assigned in a 1:1 ratio to receive Drug A 10 mg once daily (n = 120) or placebo (n = 118). Patients were followed for 12 months.</p>
+      </sec>
+      <sec id="s2-2">
+        <title>Outcomes and statistical analysis</title>
+        <p id="p3">The primary outcome was major cardiovascular events at 12 months. Secondary outcomes included all-cause death and change in systolic blood pressure. Analyses followed the intention-to-treat principle. The model is given in <xref ref-type="disp-formula" rid="e1">equation 1</xref>.</p>
+        <disp-formula id="e1">
+          <label>(1)</label>
+          <tex-math><![CDATA[y = \beta_0 + \beta_1 x + \varepsilon]]></tex-math>
+          <mml:math><mml:mi>y</mml:mi><mml:mo>=</mml:mo><mml:msub><mml:mi>&#x3b2;</mml:mi><mml:mn>0</mml:mn></mml:msub><mml:mo>+</mml:mo><mml:msub><mml:mi>&#x3b2;</mml:mi><mml:mn>1</mml:mn></mml:msub><mml:mi>x</mml:mi><mml:mo>+</mml:mo><mml:mi>&#x3b5;</mml:mi></mml:math>
+        </disp-formula>
+      </sec>
+    </sec>
+    <sec id="s3">
+      <title>Results</title>
+      <p id="p4">Of the 238 randomized patients, 230 were included in the analysis. The primary outcome occurred in 24 of 120 patients (20.0%) in the Drug A group and 36 of 118 patients (30.5%) in the placebo group (hazard ratio 0.62, 95% CI 0.41 to 0.94; P = 0.02). Baseline characteristics are shown in <xref ref-type="table" rid="t1">Table 1</xref> and outcomes in <xref ref-type="table" rid="t2">Table 2</xref>.</p>
+      <table-wrap id="t1">
+        <label>Table 1</label>
+        <caption><p>Baseline characteristics of the participants</p></caption>
+        <table>
+          <thead>
+            <tr><th rowspan="2">Characteristic</th><th colspan="2">Treatment group</th><th rowspan="2">P value</th></tr>
+            <tr><th>Drug A (n = 120)</th><th>Placebo (n = 118)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Age, years, mean (SD)</td><td>61.2 (9.8)</td><td>60.7 (10.1)</td><td>0.70</td></tr>
+            <tr><td>Female sex, n (%)</td><td>54 (45.0)</td><td>50 (42.4)</td><td>0.69</td></tr>
+            <tr><td>BMI, kg/m<sup>2</sup>, mean (SD)</td><td>27.1 (4.2)</td><td>&#x2013;</td><td></td></tr>
+            <tr><td>Diabetes, n (%)<xref ref-type="table-fn" rid="t1fn1"><sup>a</sup></xref></td><td>30 (25.0)</td><td>28 (23.7)</td><td>0.82</td></tr>
+          </tbody>
+        </table>
+        <table-wrap-foot>
+          <fn id="t1fn1"><label>a</label><p>Defined as HbA1c of 6.5% or higher.</p></fn>
+          <fn id="t1fn2"><p>Abbreviations: SD, standard deviation; BMI, body mass index.</p></fn>
+        </table-wrap-foot>
+      </table-wrap>
+      <table-wrap id="t2">
+        <label>Table 2</label>
+        <caption><p>Outcomes at 12 months (intention-to-treat population)</p></caption>
+        <table>
+          <thead>
+            <tr><th>Outcome</th><th>Drug A</th><th>Placebo</th><th>HR (95% CI)</th><th>P</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Primary outcome, n/N (%)</td><td>24/120 (20.0)</td><td>36/118 (30.5)</td><td>0.62 (0.41&#x2013;0.94)</td><td>0.02</td></tr>
+            <tr><td>All-cause death, n/N (%)</td><td>5/120 (4.2)</td><td>7/118 (5.9)</td><td>0.71 (0.23&#x2013;2.24)</td><td>0.56</td></tr>
+          </tbody>
+        </table>
+      </table-wrap>
+      <fig id="f1">
+        <label>Figure 1</label>
+        <caption><p>Cumulative incidence of the primary outcome by treatment group.</p></caption>
+        <graphic xlink:href="stj-12-e42-g001.tif"/>
+      </fig>
+    </sec>
+    <sec id="s4">
+      <title>Discussion</title>
+      <p id="p5">Drug A reduced major cardiovascular events compared with placebo.</p>
+    </sec>
+    <sec id="s5" sec-type="supplementary-material">
+      <title>Supplementary material</title>
+      <supplementary-material id="sm1" xlink:href="stj-12-e42-s001.pdf" mimetype="application" mime-subtype="pdf">
+        <label>Supplementary Appendix</label>
+        <caption><p>Trial protocol and statistical analysis plan.</p></caption>
+      </supplementary-material>
+    </sec>
+  </body>
+  <back>
+    <ref-list>
+      <title>References</title>
+      <ref id="r1"><label>1</label><element-citation publication-type="journal"><person-group person-group-type="author"><name><surname>Smith</surname><given-names>J</given-names></name><name><surname>Jones</surname><given-names>K</given-names></name></person-group><article-title>Global burden of hypertension</article-title><source>J Synth Med</source><year>2020</year><volume>12</volume><fpage>100</fpage><lpage>110</lpage><pub-id pub-id-type="doi">10.1000/jsm.2020.001</pub-id></element-citation></ref>
+      <ref id="r2"><label>2</label><element-citation publication-type="journal"><person-group person-group-type="author"><name><surname>Garcia</surname><given-names>M</given-names></name></person-group><article-title>A randomized trial of drug B</article-title><source>Synth Trials</source><year>2021</year><volume>3</volume><fpage>45</fpage><lpage>52</lpage><pub-id pub-id-type="pmid">31234567</pub-id></element-citation></ref>
+      <ref id="r3"><label>3</label><mixed-citation publication-type="journal">Novak P. Long term follow-up of drug C. <source>Open Synth J</source>. <year>2022</year>;7:e12. <pub-id pub-id-type="pmcid">PMC7654321</pub-id></mixed-citation></ref>
+    </ref-list>
+  </back>
+</article>

@@ -1,0 +1,90 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "title",
+      "text": "Reading Order in Two Column Layouts",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Abstract: We test whether reading order is recovered for a page with a full width title, a full width abstract and two columns of body text.",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Introduction",
+      "section": "Introduction"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Column detection is a classic problem in document analysis. A reader expects the left column to be read before the right one, even when lines in both columns share the same baseline.",
+      "section": "Introduction"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Methods",
+      "section": "Methods"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "We generated pages with two columns of equal width separated by a gutter of twenty points. Headings use a bold face so that a parser can detect them from font information alone.",
+      "section": "Methods"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Results",
+      "section": "Results"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "The parser recovered the order of every block on the page. The right column begins only after the left column has ended, which matches the order intended by the author.",
+      "section": "Results"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Discussion",
+      "section": "Discussion"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Simple geometric rules are sufficient for clean two column layouts. Complex layouts with floats require further work.",
+      "section": "Discussion"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Introduction",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "Methods",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "Results",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "Discussion",
+      "level": 1,
+      "page": 1
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "equations": [],
+  "references": []
+}

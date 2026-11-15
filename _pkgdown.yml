@@ -1,0 +1,94 @@
+url: https://adamrsophie.github.io/sciparseR/
+
+template:
+  bootstrap: 5
+  light-switch: true
+  math-rendering: katex
+
+navbar:
+  structure:
+    left: [intro, reference, articles, news]
+    right: [search, lightswitch, github]
+
+home:
+  sidebar:
+    structure: [links, license, citation, authors, dev]
+
+articles:
+- title: Getting started
+  navbar: Getting started
+  contents:
+  - sciparseR
+  - document-model
+- title: Parsing
+  navbar: Parsing
+  contents:
+  - pdf-layout
+  - tables
+  - jats
+  - figures-equations-references
+- title: Extraction and review
+  navbar: Extraction and review
+  contents:
+  - extraction
+  - validation-and-review
+  - language-models
+- title: Scale, quality and options
+  navbar: Scale, quality and options
+  contents:
+  - batch-and-export
+  - evaluation
+  - ocr-models-grobid
+  - ecosystem
+
+reference:
+- title: Package
+  contents:
+  - sciparseR-package
+- title: Parsing
+  desc: Turn a PDF or JATS file into a provenance-aware document model.
+  contents:
+  - sc_parse
+  - sc_config
+  - sc_parse_batch
+  - sc_cache_info
+  - sc_fetch_pmc
+- title: Document accessors
+  contents:
+  - accessors
+  - sc_find
+  - sc_source
+- title: Tables
+  contents:
+  - tables
+- title: Figures, equations, references and citations
+  contents:
+  - entities
+  - sc_figure_crop
+  - sc_highlight
+- title: Schemas and extraction
+  contents:
+  - sc_schema
+  - sc_field
+  - sc_extract
+  - sc_observations
+  - sc_evidence
+- title: Language models
+  contents:
+  - sc_llm_engine
+  - sc_llm_providers
+- title: Validation, review and derivation
+  contents:
+  - sc_validate
+  - sc_review_queue
+  - sc_correct
+  - sc_derive
+- title: Export
+  contents:
+  - export
+  - sc_read_json
+- title: Evaluation and external tools
+  contents:
+  - sc_evaluate
+  - sc_read_grobid
+  - models

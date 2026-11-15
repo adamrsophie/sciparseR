@@ -1,0 +1,45 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Unicode Characters",
+      "section": "Unicode Characters"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Authors: José Müller, Åsa Østergaard and François Noël.",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Doses of 5 µg/kg were given at 37 °C; α = 0.05 and β ≤ 0.20.",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Mean change was −3.4 ± 1.2 mm Hg (95% CI −5.1 to −1.7).",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Greek: α β γ δ μ σ χ²; relations: ≤ ≥ ≠ ≈.",
+      "section": null
+    }
+  ],
+  "sections": [
+    {
+      "title": "Unicode Characters",
+      "level": 1,
+      "page": 1
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "equations": [],
+  "references": []
+}

@@ -1,0 +1,64 @@
+---
+title: "sciparseR among document parsing tools"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{sciparseR among document parsing tools}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+sciparseR was designed after reviewing the existing tools for parsing
+scientific documents. This article records what each one does, its
+license, and how sciparseR relates to it. Licenses were read from the
+projects' license files in November 2026.
+
+| Project | Language | License | Relation to sciparseR |
+|---|---|---|---|
+| pdftools (poppler) | R, C++ | MIT | Required. Word boxes, fonts, metadata, page rendering. |
+| xml2 (libxml2) | R, C | MIT | Required. JATS parsing. |
+| jsonlite, digest | R | MIT, GPL-2+ | Required. Serialization and checksums. |
+| tesseract | R, C++ | Apache-2.0 | Optional OCR. |
+| ellmer | R | MIT | Optional language model engine (all providers). |
+| ellmercodex | R | MIT | Optional ChatGPT plan provider for ellmer. |
+| nativeORT | R, C++ | MIT | Optional ONNX inference (raw). |
+| arrow | R, C++ | Apache-2.0 | Optional Parquet export. |
+| tabulapdf | R, Java | Apache-2.0 | Not used: needs Java. Comparable table extraction. |
+| JATSdecoder | R | GPL-3 | Not used, no code reused. Extracts text and statistics from JATS. |
+| tableParser | R | GPL-3 | Not used, no code reused. Statistics from HTML and XML tables. |
+| doclingr / Docling | R wrapper, Python | MIT | Not used: Python. Comparison target. |
+| GROBID | Java service | Apache-2.0 | Optional comparison through its TEI output. |
+| Marker | Python | Apache-2.0 code, OpenRAIL-M weights | Comparison target. |
+| MinerU | Python | Apache-2.0 with additional terms | Comparison target. |
+| olmOCR | Python | Apache-2.0 | Comparison target (needs a GPU). |
+| Table Transformer | Python | MIT | Candidate ONNX table model; not integrated in this version. |
+| PyMuPDF4LLM | Python | AGPL-3 | Not used. |
+
+## What is different
+
+Each of these tools does part of the job well. sciparseR's aim is a
+combination that none of the R packages offers:
+
+* **One model for PDF and JATS.** The same accessors, extraction,
+  validation and exports work for both sources.
+* **Provenance everywhere.** Every element has a page and box or an
+  XPath, a method and a status; every extracted value has evidence with
+  the exact text, character offsets and the document checksum.
+* **Explicit uncertainty.** Statuses distinguish reported, missing, not
+  reported, ambiguous and unsupported values, and data origins distinguish
+  reported, derived, model inferred and human corrected values.
+* **Native and offline by default.** No Java, Python, GPU or network for
+  the core. Optional tools are used only when asked for.
+
+## Where Python tools are stronger
+
+Deep learning pipelines such as Docling, Marker and MinerU recognize
+layouts, complex tables and formulas that geometric methods cannot
+(tables without aligned columns, tables as images, LaTeX from formula
+images). For such documents, use them alongside sciparseR, or use the
+publisher's JATS when it exists. sciparseR's evaluation tools
+(`sc_evaluate()`) can score any parser that writes the same ground truth
+format.

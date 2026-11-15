@@ -1,0 +1,113 @@
+---
+title: "Tables"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Tables}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 100)
+library(sciparseR)
+ex <- function(f) system.file("extdata", f, package = "sciparseR")
+```
+
+Tables in clinical papers carry most of the numbers that matter, and they
+are also where naive PDF extraction fails most often: spanning headers,
+two level headers, footnote markers glued to labels, dashes for missing
+values, and tables that continue on the next page. sciparseR stores a
+table as cells and keeps all of this information.
+
+## Detection
+
+A table is found from its caption ("Table 2. ...") and the block of
+aligned rows that follows, or from aligned rows alone when there is no
+caption (status `possible`). Column boundaries come from the horizontal
+intervals that the rows share; ruling lines found on the rendered page
+mark spanning headers and the end of the header.
+
+```{r}
+doc <- sc_parse(ex("trial_tables.pdf"))
+sc_tables(doc)[, c("table_id", "label", "page", "n_rows", "n_cols", "n_header_rows", "ruled", "method", "status")]
+```
+
+## Cells
+
+```{r}
+cells <- sc_table_cells(doc, "Table 1")
+cells[, c("row", "col", "row_span", "col_span", "is_header", "text", "markers", "missing_token")]
+```
+
+Things to notice:
+
+* "Treatment group" spans two columns (`col_span = 2`): the rule under it
+  in the PDF says so.
+* The table has two header rows.
+* The superscript "a" after "Diabetes, n (%)" is stored in `markers` and
+  removed from `text`; the original is in `text_raw`.
+* The dash in the BMI row is a `missing_token`, not a number and not an
+  empty cell.
+
+Each cell has its own box, so values can be highlighted on the page:
+
+```{r}
+cells[cells$row == 3, c("text", "x0", "y0", "x1", "y1")]
+```
+
+## Data frame and matrix views
+
+`sc_table_to_dataframe()` builds column names from all header rows,
+joined with `" | "`, so the spanning header is not lost:
+
+```{r}
+sc_table_to_dataframe(doc, "Table 1")
+```
+
+The matrix view puts spanning text in the first covered position, or in
+every covered position with `fill_spans = TRUE`:
+
+```{r}
+sc_table_to_matrix(doc, "Table 1", fill_spans = TRUE)[1:2, ]
+```
+
+## Captions and footnotes
+
+```{r}
+sc_table_caption(doc, "Table 1")
+sc_table_footnotes(doc, "Table 1")[, c("marker", "text")]
+```
+
+## Tables across pages
+
+A table continued on the next page is joined only when it is certain: the
+caption repeats the label and says "continued", and the columns match.
+Otherwise the second part is kept as a separate table with
+`continuation_status = "possible"`.
+
+```{r}
+fe <- sc_parse(ex("figure_equation.pdf"))
+sc_tables(fe)[, c("table_id", "label", "page", "continuation_of", "continuation_status")]
+nrow(sc_table_to_dataframe(fe, "Table 3"))
+nrow(sc_table_to_dataframe(fe, "Table 3", join_continuations = FALSE))
+```
+
+## Export
+
+```{r}
+files <- sc_export_tables(doc, file.path(tempdir(), "tables"))
+basename(files)
+```
+
+One CSV per table plus `cells.csv`, the long table that keeps spans,
+header flags, markers and boxes, because a flat CSV cannot.
+
+## Limits
+
+The geometric method handles ruled and borderless tables whose columns
+are aligned. Tables drawn as images, tables with rotated text and tables
+whose columns are not aligned need a learned model; sciparseR does not
+claim to handle them in this version (see `vignette("ocr-models-grobid")`).
+For such tables, JATS XML from the publisher, when it exists, is the
+better source.

@@ -1,0 +1,27 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Rotated Page",
+      "section": "Rotated Page"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "This page is stored upright and displayed rotated by ninety degrees through the page rotation key.",
+      "section": null
+    }
+  ],
+  "sections": [
+    {
+      "title": "Rotated Page",
+      "level": 1,
+      "page": 1
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "equations": [],
+  "references": []
+}

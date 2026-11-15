@@ -1,0 +1,379 @@
+#' Validate extracted values
+#'
+#' Runs deterministic scientific checks over an `sc_extraction` and records
+#' each finding in `x$validation`. Record level `validation_status` becomes
+#' `"pass"`, `"warning"`, `"fail"` or `"exception"`.
+#'
+#' Rules:
+#' * `count_nonnegative`: counts and events are not negative, denominators
+#'   are positive.
+#' * `events_le_denominator`: events do not exceed their denominator.
+#' * `percent_consistent`: a reported percentage matches events over
+#'   denominator within rounding.
+#' * `ci_ordered`: lower limit < upper limit and the estimate lies inside.
+#' * `ratio_positive`: ratio measures and their limits are positive.
+#' * `p_range`: p-values lie in \[0, 1\].
+#' * `p_ci_agreement`: for ratio and difference measures with a 95% CI,
+#'   whether the CI excludes the null agrees with p < 0.05.
+#' * `estimate_bound`: comparative estimates name an outcome and both arms
+#'   of the comparison.
+#' * `dispersion_type`: dispersion values labelled neither SD nor SE.
+#' * `analyzed_le_randomized`: analyzed numbers do not exceed randomized.
+#' * `arm_sizes_sum`: per-arm allocation numbers add up to the randomized
+#'   number.
+#' * `timepoint_bound`: an observation without a time point when the same
+#'   outcome is reported at defined time points.
+#' * `cross_source_conflict`: the same quantity (outcome, arm, comparison,
+#'   measure, statistic, adjustment) reported with different values in
+#'   text and tables. Different time points or analysis sets are never
+#'   merged: they are compared only when one side leaves the context
+#'   unbound, and such matches are reported as possible conflicts.
+#' * `vocabulary` and `type`: categorical values belong to the field
+#'   vocabulary; numeric fields parse as numbers.
+#'
+#' @param x An `sc_extraction`.
+#' @param exceptions Optional data frame with columns `rule`, `id` (a record
+#'   or observation id) and `justification`. Matching findings are kept and
+#'   reported with result `"exception"`.
+#' @param tolerance Absolute tolerance for percentage checks, in percentage
+#'   points, added to the rounding implied by the reported decimals.
+#' @return The extraction with `validation` filled and record
+#'   `validation_status` updated.
+#' @examples
+#' doc <- sc_parse(system.file("extdata", "contradictory.pdf", package = "sciparseR"))
+#' x <- sc_validate(sc_extract(doc, "numerical_results"))
+#' x$validation[x$validation$result != "pass", c("rule", "result", "message")]
+#' @export
+sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
+  if (!inherits(x, "sc_extraction")) abort("`x` must be an sc_extraction.")
+  r <- x$records
+  # derived values are checked through their inputs, not as reported values
+  live <- r$status != "superseded" & r$data_origin != "derived"
+  out <- list()
+  add <- function(rule, severity, result, ids, obs, msg) {
+    out[[length(out) + 1L]] <<- list(rule = rule, severity = severity, result = result,
+                                     record_ids = paste(ids, collapse = ","),
+                                     observation_id = obs %|NA|% NA_character_, message = msg)
+  }
+  val <- function(ro, stat) {
+    v <- ro$value_num[ro$statistic == stat & !is.na(ro$value_num)]
+    if (length(v)) v[1] else NA_real_
+  }
+  rid <- function(ro, stat) ro$record_id[ro$statistic %in% stat]
+  obs_ids <- unique(r$observation_id[live & !is.na(r$observation_id)])
+  for (o in obs_ids) {
+    ro <- r[live & r$observation_id %in% o, , drop = FALSE]
+    ev <- val(ro, "events")
+    den <- val(ro, "denominator")
+    cnt <- val(ro, "count")
+    pct <- val(ro, "percent")
+    for (stat in c("events", "count")) {
+      v <- val(ro, stat)
+      if (!is.na(v)) {
+        ok <- v >= 0 && abs(v - round(v)) < 1e-8
+        add("count_nonnegative", "error", if (ok) "pass" else "fail", rid(ro, stat), o,
+            if (ok) "count is a non-negative integer" else sprintf("count %s is negative or not an integer", v))
+      }
+    }
+    if (!is.na(den)) {
+      ok <- den > 0
+      add("count_nonnegative", "error", if (ok) "pass" else "fail", rid(ro, "denominator"), o,
+          if (ok) "denominator is positive" else "denominator is not positive")
+    }
+    if (!is.na(ev) && !is.na(den)) {
+      ok <- ev <= den
+      add("events_le_denominator", "error", if (ok) "pass" else "fail", rid(ro, c("events", "denominator")), o,
+          if (ok) "events do not exceed the denominator" else sprintf("events (%s) exceed the denominator (%s)", ev, den))
+      if (!is.na(pct) && den > 0) {
+        txt <- ro$value[ro$statistic == "percent"][1]
+        dec <- if (grepl("\\.", txt)) nchar(sub("^.*\\.", "", txt)) else 0L
+        calc <- 100 * ev / den
+        ok <- abs(calc - pct) <= 0.5 * 10^(-dec) + tolerance
+        add("percent_consistent", "warning", if (ok) "pass" else "fail", rid(ro, c("events", "denominator", "percent")), o,
+            sprintf("reported %s%%, computed %.2f%%", txt, calc))
+      }
+    }
+    est <- val(ro, "estimate")
+    lo <- val(ro, "ci_lower")
+    hi <- val(ro, "ci_upper")
+    measure <- ro$effect_measure[!is.na(ro$effect_measure)][1]
+    if (!is.na(lo) && !is.na(hi)) {
+      ok <- lo < hi && (is.na(est) || (est >= lo && est <= hi))
+      add("ci_ordered", "error", if (ok) "pass" else "fail", rid(ro, c("estimate", "ci_lower", "ci_upper")), o,
+          if (ok) "confidence limits ordered around the estimate" else
+            sprintf("limits %s to %s are not ordered around estimate %s", lo, hi, est))
+    }
+    if (!is.na(measure) && measure %in% ratio_measures) {
+      vals <- c(est, lo, hi)
+      vals <- vals[!is.na(vals)]
+      if (length(vals)) {
+        ok <- all(vals > 0)
+        add("ratio_positive", "error", if (ok) "pass" else "fail", rid(ro, c("estimate", "ci_lower", "ci_upper")), o,
+            if (ok) "ratio estimate and limits are positive" else "a ratio estimate or limit is not positive")
+      }
+    }
+    p <- val(ro, "p_value")
+    if (!is.na(p)) {
+      ok <- p >= 0 && p <= 1
+      add("p_range", "error", if (ok) "pass" else "fail", rid(ro, "p_value"), o,
+          if (ok) "p-value within [0, 1]" else sprintf("p-value %s outside [0, 1]", p))
+      level <- ro$ci_level[!is.na(ro$ci_level)][1]
+      if (ok && !is.na(measure) && !is.na(lo) && !is.na(hi) && (is.na(level) || level == 95)) {
+        null <- if (measure %in% ratio_measures) 1 else 0
+        excludes <- lo > null || hi < null
+        op <- ro$p_operator[ro$statistic == "p_value"][1] %|NA|% "="
+        sig <- if (op %in% c("<", "\u2264")) p <= 0.05 else p < 0.05
+        agree <- excludes == sig || abs(p - 0.05) < 0.005
+        add("p_ci_agreement", "warning", if (agree) "pass" else "fail", rid(ro, c("ci_lower", "ci_upper", "p_value")), o,
+            if (agree) "CI and p-value agree on significance at 0.05" else
+              sprintf("CI %s to %s %s the null but p %s %s", lo, hi, if (excludes) "excludes" else "includes", op, p))
+      }
+    }
+    if (!is.na(est) && any(ro$field == "result")) {
+      ok <- !is.na(ro$outcome[1]) && !is.na(ro$arm[1]) && !is.na(ro$comparator[1])
+      miss <- c(outcome = is.na(ro$outcome[1]), arm = is.na(ro$arm[1]), comparator = is.na(ro$comparator[1]))
+      add("estimate_bound", "error", if (ok) "pass" else "fail", rid(ro, "estimate"), o,
+          if (ok) "estimate bound to an outcome and a comparison" else
+            paste("estimate not bound to:", paste(names(miss)[miss], collapse = ", ")))
+    }
+    if (any(ro$statistic == "dispersion")) {
+      add("dispersion_type", "warning", "fail", rid(ro, "dispersion"), o,
+          "dispersion is not labelled as SD or SE; it is not assumed to be either")
+    }
+  }
+  # study level counts
+  rn <- r[live & r$field == "randomized_n" & !is.na(r$value_num), , drop = FALSE]
+  an <- r[live & r$field == "analyzed_n" & !is.na(r$value_num), , drop = FALSE]
+  if (nrow(rn) && nrow(an)) {
+    ok <- all(an$value_num <= max(rn$value_num))
+    add("analyzed_le_randomized", "error", if (ok) "pass" else "fail", c(rn$record_id, an$record_id), NA,
+        sprintf("analyzed %s; randomized %s", paste(an$value_num, collapse = "/"), paste(unique(rn$value_num), collapse = "/")))
+  }
+  if (nrow(rn) && length(unique(rn$value_num)) > 1L) {
+    add("cross_source_conflict", "error", "fail", rn$record_id, NA,
+        sprintf("randomized number reported as %s", paste(unique(rn$value_num), collapse = " and ")))
+  }
+  arm_n <- r[live & r$field == "arm_n" & !is.na(r$value_num) & grepl("allocation", r$method %|NA|% "") , , drop = FALSE]
+  arm_n <- r[live & r$field == "arm_n" & !is.na(r$value_num) & r$method == "rules:arm_n", , drop = FALSE]
+  if (nrow(rn) && nrow(arm_n) >= 2L) {
+    tot <- sum(arm_n$value_num[!duplicated(arm_n$arm)])
+    ok <- tot == max(rn$value_num)
+    add("arm_sizes_sum", "warning", if (ok) "pass" else "fail", c(rn$record_id, arm_n$record_id), NA,
+        sprintf("arm sizes sum to %s; randomized %s", tot, max(rn$value_num)))
+  }
+  # time points never merged silently
+  res <- r[live & r$field == "result" & !is.na(r$outcome) & !is.na(r$value_num), , drop = FALSE]
+  if (nrow(res)) {
+    key <- outcome_key(res$outcome)
+    for (k in unique(key)) {
+      sub <- res[key == k, , drop = FALSE]
+      tps <- unique(sub$timepoint[!is.na(sub$timepoint)])
+      un <- sub[is.na(sub$timepoint), , drop = FALSE]
+      if (length(tps) >= 2L && nrow(un)) {
+        add("timepoint_bound", "warning", "fail", un$record_id, NA,
+            sprintf("outcome '%s' is reported at %s; these values have no time point", k, paste(tps, collapse = ", ")))
+      }
+    }
+  }
+  # conflicts between sources
+  for (f in conflict_findings(r[live, , drop = FALSE])) do.call(add, f)
+  # vocabulary and type checks for categorical/numeric fields
+  for (fd in x$schema$fields) {
+    sub <- r[live & r$field == fd$name & r$status == "reported", , drop = FALSE]
+    if (!nrow(sub)) next
+    if (fd$type %in% c("numeric", "integer")) {
+      bad <- is.na(sub$value_num)
+      if (any(bad)) add("type", "error", "fail", sub$record_id[bad], NA, paste0("non-numeric value in numeric field ", fd$name))
+    }
+  }
+  v <- bind_entity(lapply(out, as.data.frame, stringsAsFactors = FALSE), "validation")
+  v <- apply_exceptions(v, exceptions)
+  x$validation <- v
+  x$records$validation_status <- record_status(x$records, v)
+  x
+}
+
+outcome_key <- function(x) {
+  x <- tolower(x)
+  x <- gsub("\\b(the|a|an)\\b", " ", x)
+  x <- gsub("[^a-z0-9 ]", " ", x)
+  trimws(gsub("\\s+", " ", x))
+}
+
+conflict_findings <- function(r) {
+  res <- r[r$field == "result" & !is.na(r$value_num) & r$status == "reported" & !is.na(r$outcome), , drop = FALSE]
+  if (!nrow(res)) return(list())
+  src <- ifelse(grepl("table", res$method), "table", "text")
+  ctx <- paste(outcome_key(res$outcome), res$arm %|NA|% "", res$comparator %|NA|% "", res$effect_measure %|NA|% "",
+               res$statistic, sep = "|")
+  out <- list()
+  done <- character()
+  for (i in seq_len(nrow(res))) {
+    for (j in seq_len(nrow(res))) {
+      if (j <= i || src[i] == src[j] || ctx[i] != ctx[j]) next
+      same_adj <- identical(res$adjusted[i], res$adjusted[j]) || is.na(res$adjusted[i]) || is.na(res$adjusted[j])
+      if (!same_adj) next
+      tp_eq <- identical(res$timepoint[i], res$timepoint[j])
+      as_eq <- identical(res$analysis_set[i], res$analysis_set[j])
+      tp_wild <- is.na(res$timepoint[i]) || is.na(res$timepoint[j])
+      as_wild <- is.na(res$analysis_set[i]) || is.na(res$analysis_set[j])
+      if (!(tp_eq || tp_wild) || !(as_eq || as_wild)) next
+      exact <- tp_eq && as_eq
+      key <- paste(sort(c(res$observation_id[i], res$observation_id[j])), collapse = "~")
+      if (key %in% done) next
+      differ <- abs(res$value_num[i] - res$value_num[j]) > 1e-9
+      if (!differ) {
+        out[[length(out) + 1L]] <- list("cross_source_conflict", "info", "pass", c(res$record_id[i], res$record_id[j]),
+                                        res$observation_id[i], sprintf("%s %s agrees between text and table (%s)", res$statistic[i], res$value[i], res$outcome[i]))
+        next
+      }
+      done <- c(done, key)
+      out[[length(out) + 1L]] <- list(
+        "cross_source_conflict", "error", if (exact) "fail" else "possible_conflict",
+        c(res$record_id[i], res$record_id[j]), res$observation_id[i],
+        sprintf("%s for '%s' is %s in the %s and %s in the %s%s", res$statistic[i], res$outcome[i],
+                res$value[i], src[i], res$value[j], src[j],
+                if (exact) "" else " (time point or analysis set unbound on one side)"))
+    }
+  }
+  out
+}
+
+apply_exceptions <- function(v, exceptions) {
+  v$justification <- rep(NA_character_, nrow(v))
+  if (is.null(exceptions) || !nrow(v)) return(v)
+  if (!all(c("rule", "id", "justification") %in% names(exceptions))) {
+    abort("`exceptions` needs columns rule, id and justification.")
+  }
+  for (k in seq_len(nrow(exceptions))) {
+    e <- exceptions[k, ]
+    if (is.na(e$justification) || !nzchar(e$justification)) abort("Every exception needs a justification.")
+    hit <- v$rule == e$rule & v$result %in% c("fail", "possible_conflict") &
+      (v$observation_id %in% e$id | vapply(strsplit(v$record_ids, ","), function(z) e$id %in% z, logical(1)))
+    v$result[hit] <- "exception"
+    v$justification[hit] <- e$justification
+  }
+  v
+}
+
+record_status <- function(records, v) {
+  st <- rep("pass", nrow(records))
+  st[!records$record_id %in% unlist(strsplit(v$record_ids, ","))] <- NA_character_
+  rank <- c(pass = 0, exception = 1, warning = 2, possible_conflict = 2, fail = 3)
+  for (i in seq_len(nrow(v))) {
+    ids <- strsplit(v$record_ids[i], ",")[[1]]
+    res <- if (v$result[i] == "fail" && v$severity[i] == "warning") "warning" else v$result[i]
+    if (res == "possible_conflict") res <- "warning"
+    ix <- match(ids, records$record_id)
+    ix <- ix[!is.na(ix)]
+    for (j in ix) if (is.na(st[j]) || rank[[res]] > rank[[st[j]]]) st[j] <- res
+  }
+  st
+}
+
+#' Review queue
+#'
+#' Lists the records that need human attention, most important first:
+#' validation failures, conflicts, ambiguous or unsupported values,
+#' missing required fields and estimates without a bound context.
+#'
+#' @param x An `sc_extraction`, validated or not (validation is run if
+#'   needed).
+#' @return A data frame with one row per record to review, its reason and
+#'   the location of its evidence.
+#' @examples
+#' doc <- sc_parse(system.file("extdata", "contradictory.pdf", package = "sciparseR"),
+#'                config = sc_config(render = FALSE))
+#' q <- sc_review_queue(sc_extract(doc, "numerical_results"))
+#' q[, c("priority", "field", "statistic", "value", "reason")]
+#' @export
+sc_review_queue <- function(x) {
+  if (!inherits(x, "sc_extraction")) abort("`x` must be an sc_extraction.")
+  if (!nrow(x$validation)) x <- sc_validate(x)
+  r <- x$records[x$records$status != "superseded", , drop = FALSE]
+  v <- x$validation[x$validation$result %in% c("fail", "possible_conflict"), , drop = FALSE]
+  reasons <- list()
+  for (i in seq_len(nrow(v))) {
+    for (id in strsplit(v$record_ids[i], ",")[[1]]) {
+      reasons[[length(reasons) + 1L]] <- data.frame(record_id = id, priority = if (v$severity[i] == "error") 1L else 2L,
+                                                    reason = paste0(v$rule[i], ": ", v$message[i]), stringsAsFactors = FALSE)
+    }
+  }
+  st <- r[r$status %in% c("ambiguous", "unsupported", "not_reported", "missing", "inconsistent"), , drop = FALSE]
+  for (i in seq_len(nrow(st))) {
+    reasons[[length(reasons) + 1L]] <- data.frame(record_id = st$record_id[i],
+                                                  priority = if (st$status[i] %in% c("unsupported", "inconsistent")) 1L else 3L,
+                                                  reason = paste0("status ", st$status[i], if (!is.na(st$notes[i])) paste0(": ", st$notes[i]) else ""),
+                                                  stringsAsFactors = FALSE)
+  }
+  if (!length(reasons)) {
+    return(data.frame(priority = integer(), record_id = character(), field = character(), statistic = character(),
+                      value = character(), outcome = character(), arm = character(), reason = character(),
+                      page = integer(), text = character()))
+  }
+  q <- do.call(rbind, reasons)
+  q <- q[order(q$priority, q$record_id), , drop = FALSE]
+  q <- stats::aggregate(reason ~ record_id + priority, q, function(z) paste(unique(z), collapse = " | "))
+  q <- q[order(q$priority, q$record_id), , drop = FALSE]
+  q <- q[!duplicated(q$record_id), , drop = FALSE]
+  rr <- r[match(q$record_id, r$record_id), ]
+  ev <- x$evidence[match(rr$evidence_id, x$evidence$evidence_id), ]
+  out <- data.frame(priority = q$priority, record_id = q$record_id, field = rr$field, statistic = rr$statistic,
+                    value = rr$value, outcome = rr$outcome, arm = rr$arm, reason = q$reason,
+                    page = ev$page, text = ev$text, stringsAsFactors = FALSE)
+  rownames(out) <- NULL
+  out
+}
+
+#' Record a human correction
+#'
+#' Adds a corrected record with data origin `"human_corrected"` that
+#' supersedes the original. The original record and its evidence are kept
+#' (status `"superseded"`), so the correction history is auditable.
+#'
+#' @param x An `sc_extraction`.
+#' @param record_id Record to correct.
+#' @param value Corrected value (character; numeric values are parsed).
+#' @param reviewer Reviewer name or identifier.
+#' @param reason Why the value was corrected.
+#' @param ... Other record fields to change, such as `arm`, `outcome`,
+#'   `timepoint`, `statistic` or `dispersion_type`.
+#' @return The updated extraction (validation is cleared and should be
+#'   rerun).
+#' @examples
+#' doc <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"))
+#' x <- sc_extract(doc, "numerical_results")
+#' id <- x$records$record_id[x$records$statistic %in% "dispersion"][1]
+#' x <- sc_correct(x, id, value = "13.2", reviewer = "reviewer 1",
+#'                 reason = "methods state values are mean and SD",
+#'                 statistic = "sd", dispersion_type = "sd")
+#' tail(x$records[, c("record_id", "statistic", "status", "data_origin", "supersedes")], 2)
+#' @export
+sc_correct <- function(x, record_id, value, reviewer, reason, ...) {
+  if (!inherits(x, "sc_extraction")) abort("`x` must be an sc_extraction.")
+  check_string(record_id, "record_id")
+  check_string(reviewer, "reviewer")
+  check_string(reason, "reason")
+  i <- match(record_id, x$records$record_id)
+  if (is.na(i)) abort("Unknown record: ", record_id)
+  if (x$records$status[i] == "superseded") abort("Record ", record_id, " is already superseded.")
+  new <- x$records[i, , drop = FALSE]
+  changes <- list(...)
+  bad <- setdiff(names(changes), names(new))
+  if (length(bad)) abort("Unknown record fields: ", paste(bad, collapse = ", "))
+  for (nm in names(changes)) new[[nm]] <- changes[[nm]]
+  new$value <- as.character(value)
+  new$value_num <- as_num(value)
+  new$status <- "reported"
+  new$data_origin <- "human_corrected"
+  new$supersedes <- record_id
+  new$reviewer <- reviewer
+  new$notes <- reason
+  new$method <- "human_review"
+  new$validation_status <- NA_character_
+  new$record_id <- sprintf("rec-%05d", nrow(x$records) + 1L)
+  x$records$status[i] <- "superseded"
+  x$records <- rbind(x$records, new)
+  x$validation <- empty_entity("validation")
+  x
+}

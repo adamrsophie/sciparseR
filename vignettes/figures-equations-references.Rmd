@@ -1,0 +1,106 @@
+---
+title: "Figures, equations, references and citations"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Figures, equations, references and citations}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 100)
+library(sciparseR)
+ex <- function(f) system.file("extdata", f, package = "sciparseR")
+```
+
+## Figures
+
+A figure is located from its caption and the ink on the rendered page:
+the region above (or below) the caption that holds drawing or image ink
+and no body text. Vector graphics count as ink, so charts drawn as PDF
+paths are found too.
+
+```{r}
+fe <- sc_parse(ex("figure_equation.pdf"))
+sc_figures(fe)[, c("figure_id", "label", "page", "x0", "y0", "x1", "y1", "method", "caption")]
+```
+
+`sc_figure_crop()` renders the page and writes the figure region as PNG.
+The checksum of the source file is verified first, so a crop always comes
+from the file that was parsed.
+
+```{r, eval = requireNamespace("png", quietly = TRUE)}
+f <- sc_figure_crop(fe, sc_figures(fe)$figure_id[1], tempfile(fileext = ".png"), dpi = 100)
+dim(png::readPNG(f))
+```
+
+Cropping is not digitization: sciparseR does not read values off plots or
+reconstruct Kaplan-Meier curves.
+
+## Equations
+
+Display equations are found as centered lines with a right aligned label
+such as "(1)". From a PDF, only the text of the equation is available:
+
+```{r}
+sc_equations(fe)[, c("label", "text", "latex", "latex_status")]
+```
+
+`latex_status = "not_reconstructed"` says that no LaTeX was produced. The
+characters are there (Greek letters and operators as Unicode), but the
+two dimensional structure of fractions, sums and scripts is not recoverable
+from text positions alone, so sciparseR does not pretend to rebuild it.
+From JATS, the TeX and MathML of the source are kept
+(`latex_status = "source_markup"`).
+
+## References
+
+The reference section is found by its heading. Each entry is parsed with
+patterns for the common numbered (Vancouver) style; the identifiers DOI,
+PMID and PMCID are extracted wherever they appear.
+
+```{r}
+doc <- sc_parse(ex("single_column.pdf"))
+sc_references(doc)[, c("ref_id", "label", "authors", "year", "journal", "volume", "pages", "doi", "pmid", "pmcid")]
+```
+
+Fields that cannot be read with confidence stay `NA`; the full reference
+text is always kept in `text`.
+
+## Citations
+
+Numeric citations, including ranges and lists ("[2,3]", "[4-6]") and
+superscript numbers, are expanded and linked to references by label.
+Author year citations are linked when the first author and year match
+exactly one reference.
+
+```{r}
+sc_citations(doc)[, c("citation_id", "block_id", "marker", "ref_id", "char_start", "char_end", "style", "status")]
+```
+
+The offsets point into the block text, so the citation can be shown in
+context:
+
+```{r}
+ci <- sc_citations(doc)[1, ]
+txt <- doc$blocks$text[doc$blocks$block_id == ci$block_id]
+substring(txt, ci$char_start, ci$char_end)
+```
+
+## Footnotes
+
+Page footnotes (marked with symbols or numbers at the bottom of a page)
+and table footnotes are separate entities with a `scope`:
+
+```{r}
+doc$footnotes[, c("page", "scope", "marker", "text")]
+```
+
+## Comparing with GROBID
+
+GROBID is an excellent dedicated tool for references and header
+metadata. It is not required, and sciparseR never calls it, but if you
+run it yourself you can compare its TEI output with sciparseR's result
+using `sc_read_grobid()` and `sc_compare_grobid()` (see
+`vignette("ocr-models-grobid")`).

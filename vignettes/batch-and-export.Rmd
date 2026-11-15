@@ -1,0 +1,117 @@
+---
+title: "Batch processing and export"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Batch processing and export}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 110)
+library(sciparseR)
+```
+
+## Batches with a cache
+
+`sc_parse_batch()` parses many files, keeps going when one fails and
+records why. With a cache directory, each result is stored under a key
+built from the SHA-256 of the file, the configuration hash, the package,
+schema and pdftools versions. A file is parsed again only when one of
+these changes; renaming or moving a file does not invalidate the cache.
+
+```{r}
+files <- system.file("extdata", c("single_column.pdf", "two_column.pdf", "trial_tables.pdf",
+                                   "trial_article.xml"), package = "sciparseR")
+files <- c(files, file.path(tempdir(), "not-there.pdf"))
+cache <- file.path(tempdir(), "sciparseR-cache")
+
+b <- sc_parse_batch(files, cache_dir = cache)
+b
+b$status[, c("file", "status", "cached", "seconds", "n_warnings", "error")]
+
+b2 <- sc_parse_batch(files[1:4], cache_dir = cache)
+b2$status[, c("file", "cached", "seconds")]
+sc_cache_info(cache)[, c("source", "doc_id", "package_version", "size_bytes")]
+```
+
+`workers` runs files in parallel with forked processes on Unix-alike
+systems. Cache entries are written to a temporary file and renamed, so an
+interrupted run never leaves a half written entry.
+
+A typical batch workflow continues with extraction and validation:
+
+```{r}
+docs <- Filter(Negate(is.null), b$documents)
+ext <- lapply(docs, function(d) sc_validate(sc_extract(d, "clinical_trial")))
+summary_tab <- do.call(rbind, lapply(names(ext), function(n) {
+  r <- ext[[n]]$records
+  data.frame(file = n, records = nrow(r),
+             fails = sum(ext[[n]]$validation$result == "fail"),
+             to_review = nrow(sc_review_queue(ext[[n]])))
+}))
+summary_tab
+```
+
+## Export formats
+
+| Function | Content | Use |
+|---|---|---|
+| `sc_export_json()` / `sc_read_json()` | full document or extraction, versioned | archiving, exchange, other languages |
+| `sc_export_markdown()` | readable text with pipe tables | reading, LLM context, notes |
+| `sc_export_csv()` | one CSV per entity table | spreadsheets |
+| `sc_export_parquet()` | one Parquet file per entity table | data pipelines (needs arrow) |
+| `sc_export_jats()` | JATS XML built from the model | XML tooling, round trips |
+| `sc_export_evidence()` | records joined with evidence | review, audit trails of extraction |
+| `sc_export_tables()` | one CSV per table plus long cell table | table reuse |
+
+```{r}
+doc <- docs[["trial_tables.pdf"]]
+x <- ext[["trial_tables.pdf"]]
+out <- file.path(tempdir(), "export")
+dir.create(out, showWarnings = FALSE)
+```
+
+### JSON
+
+The JSON file holds every entity table and the provenance lists. The
+absolute path of the source is left out unless `include_path = TRUE`; the
+file name and checksum are always there. Reading it back restores the
+column types exactly.
+
+```{r}
+f <- sc_export_json(doc, file.path(out, "doc.json"))
+d2 <- sc_read_json(f)
+all(vapply(c("blocks", "cells", "tables"), function(e) identical(d2[[e]], doc[[e]]), logical(1)))
+```
+
+The JSON Schema of both object types ships with the package:
+
+```{r}
+list.files(system.file("schema", package = "sciparseR"))
+```
+
+### Markdown
+
+```{r}
+md <- sc_export_markdown(doc, file.path(out, "doc.md"))
+cat(readLines(md), sep = "\n")
+```
+
+### JATS
+
+```{r}
+jf <- sc_export_jats(doc, file.path(out, "doc.xml"))
+back <- sc_parse(jf, format = "jats")
+sc_table_to_dataframe(back, back$tables$table_id[1])
+```
+
+### Evidence, CSV and Parquet
+
+```{r}
+e <- read.csv(sc_export_evidence(x, file.path(out, "evidence.csv")))
+e[1:3, c("field", "value", "status", "evidence_page", "evidence_char_start", "evidence_char_end")]
+basename(sc_export_csv(x, file.path(out, "csv")))
+if (requireNamespace("arrow", quietly = TRUE)) basename(sc_export_parquet(doc, file.path(out, "parquet")))
+```

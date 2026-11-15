@@ -1,0 +1,159 @@
+---
+title: "Schema-driven extraction"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Schema-driven extraction}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 110)
+library(sciparseR)
+ex <- function(f) system.file("extdata", f, package = "sciparseR")
+```
+
+Extraction answers questions such as "what was the design?", "how many
+were randomized?" and "what was the hazard ratio for the primary outcome
+at 12 months in the intention-to-treat population?". The answer to the
+last one is not a number: it is a number *with its context*, and getting
+the context wrong (the wrong arm, time point or analysis set) is the most
+common and most harmful extraction error. This article shows how
+sciparseR represents results so that the context is explicit and
+checkable.
+
+## Schemas
+
+A schema is a list of fields. Five schemas are built in:
+
+```{r}
+sc_schema("clinical_trial")
+```
+
+`sc_extract_pico()`, `sc_extract_methods()`, `sc_extract_outcomes()` and
+`sc_extract_statistics()` are shortcuts for the built-in schemas.
+
+## Records
+
+The result of `sc_extract()` has one row per extracted value:
+
+```{r}
+doc <- sc_parse(ex("trial_tables.pdf"))
+x <- sc_extract(doc, "clinical_trial")
+names(x$records)
+```
+
+The columns that matter most:
+
+* `field`, `value`, `value_num`, `unit`: what was found. `value` is the
+  text exactly as printed; `value_num` its numeric reading.
+* `status`: `reported`, `missing` (the source marks it missing, for
+  example with a dash), `not_reported` (expected but absent), `ambiguous`
+  (found, but its meaning is not stated), `unsupported` (model output that
+  could not be verified), `superseded` (replaced by a correction).
+* `data_origin`: `reported`, `derived`, `model_inferred`,
+  `human_corrected`.
+* `evidence_id`: the link to the evidence row.
+
+## Study design and methods
+
+```{r}
+r <- x$records
+r[r$field %in% c("study_design", "design_features", "randomized_n", "analyzed_n", "arms", "dose",
+                 "arm_n", "allocation_ratio", "follow_up", "analysis_population",
+                 "primary_outcome", "secondary_outcomes"),
+  c("field", "value", "arm", "method")]
+```
+
+Two `arm_n` rows per arm appear: one from the allocation sentence, one
+from the column header of Table 1. The second carries a note, because a
+column header does not say whether its n is the number randomized or the
+number analyzed.
+
+## Numerical results and binding
+
+Each number is its own record. Numbers that belong together (an estimate
+with its confidence limits and p-value, events with their denominator, a
+mean with its dispersion) share an `observation_id`.
+
+```{r}
+o <- sc_observations(x)
+o[o$observation_id == o$observation_id[o$statistic == "estimate"][1],
+  c("observation_id", "statistic", "value", "outcome", "arm", "comparator", "effect_measure")]
+```
+
+The context of each number comes only from explicit structure in the
+source: the subject of the sentence, a "for <outcome>" phrase after the
+measure, the arm named in "in the Drug A group", a table row label, a
+column header, a time point or analysis population in the table caption.
+The `binding` column records which of these was used:
+
+```{r}
+unique(o$binding[o$field == "result"])
+```
+
+When the context cannot be bound, it stays `NA`; the validator then flags
+the estimate (`estimate_bound`) for review instead of guessing.
+
+The wide view puts one observation per row:
+
+```{r}
+w <- sc_observations(x, wide = TRUE)
+w[w$field == "result", c("outcome", "arm", "comparator", "timepoint", "analysis_set",
+                         "effect_measure", "events", "denominator", "percent",
+                         "estimate", "ci_lower", "ci_upper", "p_value", "mean", "se")]
+```
+
+Text and table report the primary outcome twice: in the text without a
+time point, in Table 2 at 12 months in the intention-to-treat population.
+They are separate observations; the validator compares them and reports
+that they agree. Values at different time points or in different analysis
+sets are never merged.
+
+## Ambiguity is explicit
+
+```{r}
+o[o$status %in% c("ambiguous", "missing", "not_reported"), c("statistic", "value", "status", "outcome", "arm")]
+x$records$notes[x$records$status == "ambiguous"][1]
+```
+
+"8.1 &plusmn; 13.2" with no statement of SD or SE is recorded as a mean and a
+`dispersion` with status `ambiguous`. A reviewer can resolve it with
+`sc_correct()` once the methods section is checked.
+
+## Evidence
+
+```{r}
+ev <- sc_evidence(x)
+ev[ev$field == "result", c("record_id", "value", "page", "table_id", "cell_id", "char_start", "char_end", "bbox_scope")][1:6, ]
+```
+
+For text, the box is the union of the word boxes of the value
+(`bbox_scope = "span"`); for tables, the box of the cell. The evidence
+also carries the document checksum, so it can be checked against the file
+later. `sc_highlight()` draws the boxes on the rendered page:
+
+```{r, eval = requireNamespace("png", quietly = TRUE)}
+files <- sc_highlight(doc, x, dir = tempdir(), dpi = 60)
+basename(files)
+```
+
+## Your own schema
+
+User fields are found with a regular expression (one capture group) or a
+controlled vocabulary, optionally limited to some sections:
+
+```{r}
+reg <- sc_schema("registration", fields = list(
+  sc_field("ratio", "Allocation ratio", pattern = "([0-9]+:[0-9]+) ratio", sections = "methods"),
+  sc_field("masking", "Masking", type = "categorical",
+           vocabulary = c(double = "double-blind", single = "single-blind", open = "open-label")),
+  sc_field("registry_id", "Trial registration number", pattern = "\\b(NCT[0-9]{8})\\b", required = TRUE)
+))
+y <- sc_extract(doc, reg)
+y$records[, c("field", "value", "status", "notes")]
+```
+
+The registration number is required and absent, so it is recorded as
+`not_reported` rather than left out.

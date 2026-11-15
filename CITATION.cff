@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use sciparseR, please cite it as below."
+title: "sciparseR: Provenance-Aware Scientific Document Parsing and Extraction"
+version: 0.1.0
+authors:
+  - family-names: Sophie
+    given-names: Adam R
+    email: adamrsophie@gmail.com
+license: GPL-3.0-only
+repository-code: "https://github.com/adamrsophie/sciparseR"
+url: "https://adamrsophie.github.io/sciparseR/"
+type: software

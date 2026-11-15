@@ -1,0 +1,135 @@
+---
+title: "PDF layout and reading order"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{PDF layout and reading order}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 100)
+library(sciparseR)
+ex <- function(f) system.file("extdata", f, package = "sciparseR")
+```
+
+A PDF file stores glyphs and their positions, not paragraphs. sciparseR
+rebuilds the reading structure from the word boxes that pdftools reports.
+This article explains each step and shows it on the bundled fixtures,
+each of which comes with a ground truth file used by the tests.
+
+## From words to lines
+
+Words are grouped into lines by vertical overlap, and a line is split into
+segments where the horizontal gap is larger than `segment_gap` times the
+line height. Small raised words become superscripts (footnote markers,
+citation numbers).
+
+```{r}
+doc <- sc_parse(ex("single_column.pdf"))
+head(doc$lines[, c("line_id", "page", "y0", "font_size", "text")], 5)
+head(doc$spans[doc$spans$superscript, c("text", "line_id")])
+```
+
+## Columns and reading order
+
+The default reading order is a recursive XY-cut: a page region is split at
+the widest vertical whitespace gutter (a column break) or horizontal gap,
+and the parts are read top to bottom, left to right. Lines that cross a
+gutter, such as a full width title or abstract, are kept together.
+
+```{r}
+two <- sc_parse(ex("two_column.pdf"))
+sc_pages(two)[, c("page", "n_columns")]
+p <- sc_blocks(two, type = c("heading", "paragraph"))
+p[, c("reading_order", "column", "type")][1:8, ]
+substr(p$text[1:6], 1, 60)
+```
+
+The `broken_order.pdf` fixture writes its text in a scrambled order inside
+the file. The stream order (the order in the file) is wrong; the
+geometric order is right:
+
+```{r}
+geo <- sc_parse(ex("broken_order.pdf"))
+str <- sc_parse(ex("broken_order.pdf"), config = sc_config(reading_order = "stream"))
+truth <- sub("\\.pdf$", ".truth.json", ex("broken_order.pdf"))
+rbind(xycut = sc_evaluate(geo, truth)$value[1:3], stream = sc_evaluate(str, truth)$value[1:3])
+```
+
+## Headers, footers and page numbers
+
+Text that repeats in the top or bottom band of several pages
+(`header_band`) is a running header or footer; a lone number there is a
+page number. These blocks keep their type, so they are available, but
+`sc_text()` leaves them out.
+
+```{r}
+doc$blocks[doc$blocks$type %in% c("header", "footer", "page_number"), c("page", "type", "text")]
+```
+
+## Hyphenation
+
+A word broken at a line end ("random-" / "ized") is rejoined only when the
+joined word appears elsewhere in the document, or when the second part
+starts in lower case and the joined form is a plausible word. Real
+hyphenated compounds stay as they are.
+
+```{r}
+grepl("randomized", sc_text(doc))
+grepl("random- ized", sc_text(doc), fixed = TRUE)
+```
+
+## Paragraphs across pages
+
+A paragraph that continues on the next page is linked rather than merged,
+so each block keeps its own page and box. `sc_text()` joins them with a
+space.
+
+```{r}
+cont <- doc$blocks[!is.na(doc$blocks$continues), c("block_id", "page", "continues")]
+cont
+```
+
+## Rotated pages
+
+Pages with a `/Rotate` entry are detected and their words are mapped to
+the upright page:
+
+```{r}
+rot <- sc_parse(ex("rotated.pdf"))
+sc_pages(rot)[, c("page", "rotation", "rotation_status", "width", "height")]
+substr(sc_text(rot), 1, 120)
+```
+
+## Image-only pages
+
+A page with ink but no text layer is flagged, never silently empty. See
+`vignette("ocr-models-grobid")` for the optional OCR step.
+
+```{r}
+scan <- sc_parse(ex("scanned.pdf"))
+sc_pages(scan)[, c("page", "has_text_layer", "image_only", "ocr_status", "ink_ratio")]
+```
+
+## Unicode
+
+Greek letters, mathematical operators and accented names are kept as
+Unicode and normalized to NFC:
+
+```{r}
+cat(sc_text(sc_parse(ex("unicode.pdf"))))
+```
+
+## Settings
+
+All thresholds live in `sc_config()`. The defaults work for typical
+journal layouts; `column_gap` and `segment_gap` are the first to adjust
+for unusual layouts. Switching `render = FALSE` skips page rendering,
+which is faster but disables ruling line detection for tables and figure
+regions.
+
+```{r}
+sc_config(column_gap = 1.5, render = FALSE)
+```

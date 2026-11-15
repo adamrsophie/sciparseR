@@ -1,0 +1,153 @@
+---
+title: "Language models: providers, ChatGPT plans and verification"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Language models: providers, ChatGPT plans and verification}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 110)
+library(sciparseR)
+```
+
+The rules engine is precise but narrow. A language model reads more
+varied writing, but it can also produce values that are not in the
+paper. sciparseR uses language models in a way that keeps the second
+problem visible: the model must quote its source, and every quote is
+checked against the document before a value is accepted.
+
+Nothing is sent anywhere unless you create an engine and pass it to
+`sc_extract()`. Only block text is sent, never the PDF file.
+
+## Providers
+
+sciparseR works with every provider of
+[ellmer](https://ellmer.tidyverse.org) and with ChatGPT plans through
+[ellmercodex](https://github.com/simxnherrera/ellmercodex).
+
+```{r}
+sc_llm_providers()
+```
+
+```{r, eval = FALSE}
+# API keys are read by ellmer from environment variables
+eng <- sc_llm_engine("anthropic", model = "claude-sonnet-5-5")       # ANTHROPIC_API_KEY
+eng <- sc_llm_engine("openai", model = "gpt-6")                       # OPENAI_API_KEY
+eng <- sc_llm_engine("openrouter", model = "anthropic/claude-opus-5-5") # OPENROUTER_API_KEY
+eng <- sc_llm_engine("google_gemini", model = "gemini-3-pro")         # GEMINI_API_KEY
+eng <- sc_llm_engine("ollama", model = "llama4")                      # local, no key
+eng <- sc_llm_engine("azure_openai", endpoint = "https://...", model = "my-deployment")
+eng <- sc_llm_engine("aws_bedrock", model = "anthropic.claude-sonnet-5-5")
+```
+
+Arguments after `model` go to the ellmer constructor (`credentials`,
+`base_url`, `params`, and so on). Aliases `"claude"`, `"gemini"`,
+`"bedrock"`, `"azure"` and `"vertex"` are accepted.
+
+### ChatGPT plan
+
+With an eligible ChatGPT plan, ellmercodex signs you in once and needs no
+API key:
+
+```{r, eval = FALSE}
+ellmercodex::codex_login()
+eng <- sc_llm_engine("chatgpt", model = "gpt-6-luna", effort = "low")
+```
+
+Plan usage does not accept sampling arguments such as `temperature`.
+
+### Your own chat or function
+
+```{r, eval = FALSE}
+chat <- ellmer::chat_openai_compatible(base_url = "http://localhost:8000/v1", model = "my-model")
+eng <- sc_llm_engine(chat = chat)
+```
+
+A plain function also works. It receives the full prompt and returns JSON
+or a data frame, which is how local inference servers, caching layers and
+tests plug in.
+
+## A complete run without network access
+
+Here a function stands in for the model so the example runs anywhere. It
+returns four answers: one correct, one with a value that is not in its
+quote, one citing a block that was never sent, and one correct design
+statement.
+
+```{r}
+doc <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"))
+b <- sc_blocks(doc, type = "paragraph")
+bid <- b$block_id[grepl("total of 238", b$text)]
+
+fake_model <- function(prompt) {
+  jsonlite::toJSON(data.frame(
+    field    = c("randomized_n", "analyzed_n", "comparator", "study_design"),
+    value    = c("238", "236", "sham", "randomized_controlled_trial"),
+    quote    = c("A total of 238 patients were randomly assigned",
+                 "A total of 238 patients", "sham procedure",
+                 "double-blind, randomized, placebo-controlled trial"),
+    block_id = c(bid, bid, "b-p009-0001", bid)))
+}
+eng <- sc_llm_engine(fun = fake_model, model = "stand-in")
+eng
+y <- sc_extract(doc, "clinical_trial", engine = "llm", llm = eng)
+y$records[, c("field", "value", "status", "data_origin", "notes")]
+```
+
+* "238" and the design are quoted and present in the block: `reported`.
+* "236" does not occur in its quote: `unsupported`.
+* The "sham" quote cites a block that was not sent: `unsupported`.
+* Required fields the model did not return are `not_reported`.
+* Every model value has `data_origin = "model_inferred"`.
+
+The evidence of verified values has offsets into the block text, so they
+can be highlighted like rule based values:
+
+```{r}
+sc_evidence(y)[y$records$status == "reported", c("field", "value", "char_start", "char_end", "bbox_scope")]
+```
+
+## What the model sees
+
+The prompt lists the schema fields with descriptions and allowed values,
+then the passages, each prefixed with its block id. The system prompt
+tells the model to quote exactly and not to compute or infer values.
+Long documents are split into requests of at most `max_chars`
+characters.
+
+```{r}
+cat(substr(sciparseR:::llm_prompt(sc_schema("pico"), b[1:2, ]), 1, 700))
+```
+
+## Run record
+
+Each request is logged with the SHA-256 of its prompt, the number of
+passages, the time taken and, for ellmer chats, tokens and cost:
+
+```{r}
+y$llm$calls
+y$llm$model
+```
+
+## Structured output
+
+ellmer structured output is used when the provider supports it. With the
+default `structured = "auto"`, a provider that rejects it is asked for
+plain JSON instead; `"always"` turns that fallback off and `"never"`
+always uses plain JSON.
+
+## Combining engines
+
+A practical pattern is to run the rules engine first, then the model on
+the same schema, and review where they disagree. Both results are
+ordinary `sc_extraction` objects with the same columns.
+
+```{r, eval = FALSE}
+rules <- sc_validate(sc_extract(doc, "pico"))
+model <- sc_validate(sc_extract(doc, "pico", engine = "llm", llm = eng))
+merge(rules$records[, c("field", "value")], model$records[, c("field", "value")],
+      by = "field", suffixes = c("_rules", "_model"))
+```

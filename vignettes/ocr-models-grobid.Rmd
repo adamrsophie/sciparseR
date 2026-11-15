@@ -1,0 +1,105 @@
+---
+title: "OCR, ONNX models and GROBID"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{OCR, ONNX models and GROBID}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 110)
+library(sciparseR)
+ex <- function(f) system.file("extdata", f, package = "sciparseR")
+has_ocr <- requireNamespace("tesseract", quietly = TRUE) &&
+  "eng" %in% tesseract::tesseract_info()$available
+```
+
+The core of sciparseR needs no OCR, no model files and no external
+service. This article covers the three optional extensions and states
+exactly what each one does in this version.
+
+## OCR
+
+Scanned pages have no text layer. sciparseR detects them (ink on the
+rendered page, no words) and marks them `ocr_status = "needed"`. With
+`ocr = "auto"` and the tesseract package installed, those pages are
+rendered to a temporary image and recognized; `ocr = "always"` replaces
+the text layer of every page.
+
+```{r, eval = has_ocr}
+doc <- sc_parse(ex("scanned.pdf"), config = sc_config(ocr = "auto", ocr_language = "eng", ocr_dpi = 300))
+sc_pages(doc)[, c("page", "image_only", "ocr_status")]
+sc_blocks(doc, page = 2)[, c("type", "method", "status", "text")]
+doc$spans[doc$spans$source == "ocr_tesseract", c("text", "x0", "y0", "x1", "y1", "confidence")][1:6, ]
+doc$warnings[, c("stage", "code", "message")]
+```
+
+OCR words become spans with `source = "ocr_tesseract"`, boxes mapped to
+page points, and the recognizer's own confidence (0 to 100). That number
+is tesseract's score, not a calibrated probability: a page with a low
+median confidence gets an `ocr_low_confidence` warning, and OCR blocks
+carry `status = "ocr"` so they can be treated with care downstream. Note
+the recognition error "Is" for "is" in the output above: OCR text should
+be reviewed.
+
+If tesseract is not installed, the page is marked `unavailable` with a
+warning; parsing never fails because OCR is missing.
+
+## ONNX models
+
+Learned models (layout detection, table structure recognition, formula
+recognition) can handle what geometry cannot. sciparseR prepares for them
+without pretending they are integrated:
+
+* **No automatic downloads.** You obtain a model file yourself.
+* **Registry with license and checksum.** `sc_model_register()` refuses a
+  model until you accept its license, records the SHA-256, and
+  `sc_onnx_session()` checks it again every time.
+* **Raw inference** through [nativeORT](https://github.com/calebmcarr/nativeORT)
+  with `sc_onnx_infer()`.
+
+```{r}
+reg <- file.path(tempdir(), "models")
+f <- tempfile(fileext = ".onnx")
+writeBin(as.raw(seq_len(64)), f)
+sc_model_register("demo-layout", f, task = "layout", license = "MIT",
+                  accept_license = TRUE, source = "local file", registry = reg)
+sc_models(reg)[, c("name", "task", "license", "sha256")]
+sc_onnx_status()[c("available", "integrated_tasks", "note")]
+```
+
+`integrated_tasks` is empty: in this version no learned model is used by
+`sc_parse()`. Detection models such as Table Transformer return several
+tensors (class logits and boxes) and `nativeORT::ort_infer_raw()`
+returns only the first, so the boxes cannot be decoded. Parsing therefore
+always uses the geometric methods, and the documentation says so rather
+than advertising a capability that does not work end to end.
+
+```{r}
+sc_model_remove("demo-layout", registry = reg)
+```
+
+## GROBID
+
+[GROBID](https://github.com/kermitt2/grobid) is a mature service for
+header metadata and references. sciparseR never calls it. If you run it
+yourself, read its TEI output and compare:
+
+```{r}
+tei <- tempfile(fileext = ".tei.xml")
+writeLines(c(
+  '<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><titleStmt>',
+  '<title level="a" type="main">Effect of Drug A on Blood Pressure: a Synthetic Example</title>',
+  '</titleStmt></fileDesc></teiHeader><text><body>',
+  '<div><head n="1.">Introduction</head></div><div><head n="2.">Methods</head></div>',
+  '<div><head n="3.">Results</head></div></body><back><listBibl>',
+  '<biblStruct xml:id="b0"><analytic><title level="a">Global burden of hypertension</title>',
+  '<idno type="DOI">10.1000/jsm.2020.001</idno></analytic>',
+  '<monogr><title level="j">J Synth Med</title><imprint><date type="published" when="2020"/></imprint></monogr>',
+  '</biblStruct></listBibl></back></text></TEI>'), tei)
+g <- sc_read_grobid(tei)
+g$references
+sc_compare_grobid(sc_parse(ex("single_column.pdf")), g)
+```

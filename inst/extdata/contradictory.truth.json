@@ -1,0 +1,102 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "title",
+      "text": "Drug A Versus Placebo: a Report with Inconsistent Numbers",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Methods",
+      "section": "Methods"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "This was a multicentre, double-blind, randomized, placebo-controlled trial. Adults aged 18 years or older with hypertension were eligible. Exclusion criteria included pregnancy and severe renal disease. A total of 238 patients were randomly assigned in a 1:1 ratio to receive Drug A 10 mg once daily (n = 120) or placebo (n = 118). Patients were followed for 12 months. The primary outcome was major cardiovascular events at 12 months. Secondary outcomes included all-cause death and change in systolic blood pressure. Analyses followed the intention-to-treat principle.",
+      "section": "Methods"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Results",
+      "section": "Results"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "The primary outcome occurred in 24 of 120 patients (20.0%) in the Drug A group and 36 of 118 patients (30.5%) in the placebo group (hazard ratio 0.62, 95% CI 0.41 to 0.94; P = 0.02). Serious adverse events occurred in 130 of 120 patients in the Drug A group. The odds ratio for withdrawal was 1.8 (95% CI 2.1 to 3.0; P = 1.30).",
+      "section": "Results"
+    },
+    {
+      "page": 1,
+      "type": "caption",
+      "text": "Table 1. Baseline characteristics of the participants",
+      "section": "Results"
+    },
+    {
+      "page": 1,
+      "type": "caption",
+      "text": "Table 2. Outcomes at 12 months (intention-to-treat population)",
+      "section": "Results"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Methods",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "Results",
+      "level": 1,
+      "page": 1
+    }
+  ],
+  "tables": [
+    {
+      "label": "Table 1",
+      "page": 1,
+      "header_rows": 2,
+      "cells": [
+        ["", "Treatment group", "", ""],
+        ["Characteristic", "Drug A (n = 120)", "Placebo (n = 118)", "P value"],
+        ["Age, years, mean (SD)", "61.2 (9.8)", "60.7 (10.1)", "0.70"],
+        ["Female sex, n (%)", "54 (45.0)", "50 (42.4)", "0.69"],
+        ["BMI, kg/m2, mean (SD)", "27.1 (4.2)", "–", ""],
+        ["Diabetes, n (%)a", "30 (25.0)", "28 (23.7)", "0.82"]
+      ],
+      "spans": [
+        {
+          "row": 1,
+          "col": 2,
+          "ncol": 2,
+          "text": "Treatment group"
+        }
+      ],
+      "continued_of": null,
+      "top": 298.2,
+      "bottom": 384.6
+    },
+    {
+      "label": "Table 2",
+      "page": 1,
+      "header_rows": 1,
+      "cells": [
+        ["Outcome", "Drug A", "Placebo", "HR (95% CI)", "P"],
+        ["Primary outcome, n/N (%)", "24/120 (20.0)", "36/118 (30.5)", "0.68 (0.45–1.02)", "0.02"],
+        ["All-cause death, n/N (%)", "5/120 (4.2)", "7/118 (5.9)", "0.71 (0.23–2.24)", "0.56"],
+        ["Change in SBP, mm Hg, mean (SE)", "-8.1 (1.2)", "-3.4 (1.1)", "", "0.004"]
+      ],
+      "spans": [],
+      "continued_of": null,
+      "top": 442.6,
+      "bottom": 500.2
+    }
+  ],
+  "figures": [],
+  "equations": [],
+  "references": []
+}

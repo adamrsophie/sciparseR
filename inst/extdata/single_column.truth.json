@@ -1,0 +1,174 @@
+{
+  "blocks": [
+    {
+      "page": 1,
+      "type": "title",
+      "text": "Effect of Drug A on Blood Pressure: a Synthetic Example",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "authors",
+      "text": "Jane Doe, Omar Khan, Li Wei",
+      "section": null
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "Abstract",
+      "section": "Abstract"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Background: Hypertension is common. Methods: We describe a synthetic example used to test document parsing. Results: Parsing recovered all sections. Conclusions: Synthetic documents support reproducible tests.",
+      "section": "Abstract"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "1. Introduction",
+      "section": "1. Introduction"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "High blood pressure remains a leading cause of cardiovascular disease worldwide [1]. Several trials have tested new agents [2,3]. Most previous studies were not randomized and used small samples, so their estimates were imprecise. This synthetic report follows the usual structure of a clinical paper so that every element can be checked.",
+      "section": "1. Introduction"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "2. Methods",
+      "section": "2. Methods"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "2.1 Participants",
+      "section": "2.1 Participants"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "Adults aged 18 years or older with untreated hypertension were eligible. Participants were recruited from twelve clinics between 2020 and 2022. Each participant gave written informed consent before any study procedure, and the protocol was approved by an ethics committee.",
+      "section": "2.1 Participants"
+    },
+    {
+      "page": 1,
+      "type": "heading",
+      "text": "2.2 Outcomes",
+      "section": "2.2 Outcomes"
+    },
+    {
+      "page": 1,
+      "type": "paragraph",
+      "text": "The primary outcome was the change in systolic blood pressure from baseline to week 12, measured in the seated position after five minutes of rest with a validated automated device. Secondary outcomes included diastolic blood pressure, heart rate and adverse events. All measurements were taken by staff unaware of the treatment assignment, and the device was calibrated every month according to the instructions of the manufacturer. The statistical analysis plan was finalized before the database was locked and is available from the authors on request.",
+      "section": "2.2 Outcomes"
+    },
+    {
+      "page": 2,
+      "type": "heading",
+      "text": "3. Results",
+      "section": "3. Results"
+    },
+    {
+      "page": 2,
+      "type": "paragraph",
+      "text": "Of 240 screened adults, 200 were enrolled. The mean age was 58 years. Blood pressure fell in both groups during follow-up.",
+      "section": "3. Results"
+    },
+    {
+      "page": 2,
+      "type": "heading",
+      "text": "4. Discussion",
+      "section": "4. Discussion"
+    },
+    {
+      "page": 2,
+      "type": "paragraph",
+      "text": "This synthetic example shows the structure that the parser must recover, including a paragraph that continues on the next page.",
+      "section": "4. Discussion"
+    },
+    {
+      "page": 2,
+      "type": "heading",
+      "text": "References",
+      "section": "References"
+    },
+    {
+      "page": 2,
+      "type": "reference",
+      "text": "1. Smith J, Jones K. Global burden of hypertension. J Synth Med. 2020;12:100-110. doi:10.1000/jsm.2020.001",
+      "section": "References"
+    },
+    {
+      "page": 2,
+      "type": "reference",
+      "text": "2. Garcia M, Chen L, Patel R. A randomized trial of drug B. Synth Trials. 2021;3(2):45-52. PMID: 31234567",
+      "section": "References"
+    },
+    {
+      "page": 2,
+      "type": "reference",
+      "text": "3. Novak P. Long term follow-up of drug C. Open Synth J. 2022;7:e12. PMCID: PMC7654321",
+      "section": "References"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Abstract",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "1. Introduction",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "2. Methods",
+      "level": 1,
+      "page": 1
+    },
+    {
+      "title": "2.1 Participants",
+      "level": 2,
+      "page": 1
+    },
+    {
+      "title": "2.2 Outcomes",
+      "level": 2,
+      "page": 1
+    },
+    {
+      "title": "3. Results",
+      "level": 1,
+      "page": 2
+    },
+    {
+      "title": "4. Discussion",
+      "level": 1,
+      "page": 2
+    },
+    {
+      "title": "References",
+      "level": 1,
+      "page": 2
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "equations": [],
+  "references": [
+    "1. Smith J, Jones K. Global burden of hypertension. J Synth Med. 2020;12:100-110. doi:10.1000/jsm.2020.001",
+    "2. Garcia M, Chen L, Patel R. A randomized trial of drug B. Synth Trials. 2021;3(2):45-52. PMID: 31234567",
+    "3. Novak P. Long term follow-up of drug C. Open Synth J. 2022;7:e12. PMCID: PMC7654321"
+  ],
+  "footnotes": [
+    {
+      "page": 1,
+      "text": "* Corresponding author: jane.doe@example.org"
+    }
+  ]
+}

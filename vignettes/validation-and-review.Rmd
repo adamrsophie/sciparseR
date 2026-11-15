@@ -1,0 +1,131 @@
+---
+title: "Validation, review, corrections and derived values"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Validation, review, corrections and derived values}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(width = 110)
+library(sciparseR)
+ex <- function(f) system.file("extdata", f, package = "sciparseR")
+```
+
+Published papers contain errors, and extraction adds its own. The
+fixture `contradictory.pdf` plants five problems: a hazard ratio that
+differs between text (0.62) and table (0.68), 130 events among 120
+patients, an odds ratio of 1.8 with a confidence interval of 2.1 to 3.0,
+a p-value of 1.30, and a table confidence interval (0.45 to 1.02) that
+includes 1 next to p = 0.02.
+
+```{r}
+doc <- sc_parse(ex("contradictory.pdf"))
+x <- sc_validate(sc_extract(doc, "clinical_trial"))
+x
+```
+
+## The rules
+
+```{r}
+v <- x$validation
+v[v$result != "pass", c("rule", "severity", "result", "message")]
+```
+
+| Rule | Checks |
+|---|---|
+| `count_nonnegative` | counts are non-negative integers, denominators positive |
+| `events_le_denominator` | events do not exceed the denominator |
+| `percent_consistent` | a percentage matches events / denominator within its rounding |
+| `ci_ordered` | lower < upper, estimate inside |
+| `ratio_positive` | ratio estimates and limits are positive |
+| `p_range` | 0 &le; p &le; 1 |
+| `p_ci_agreement` | a 95% CI excludes the null exactly when p < 0.05 |
+| `estimate_bound` | an estimate names its outcome and both arms |
+| `dispersion_type` | a dispersion is labelled SD or SE |
+| `analyzed_le_randomized` | analyzed &le; randomized |
+| `arm_sizes_sum` | per arm allocations add up to the randomized number |
+| `timepoint_bound` | values without a time point when the outcome has several |
+| `cross_source_conflict` | text and table agree on the same quantity |
+| `type` | numeric fields parse as numbers |
+
+The conflict rule compares two values only when outcome, arms, measure,
+statistic and adjustment match. If time point or analysis set differ, they
+are not compared. If one side leaves them unbound (as the text does
+here), a difference is a `possible_conflict`, not a certain one.
+
+Each record gets the worst result of the rules that touched it:
+
+```{r}
+table(x$records$validation_status, useNA = "ifany")
+```
+
+## The review queue
+
+```{r}
+q <- sc_review_queue(x)
+q[, c("priority", "field", "statistic", "value", "outcome", "reason")]
+```
+
+Priority 1 is errors and unverifiable values, 2 warnings, 3 statuses such
+as `missing` or `not_reported` that a reviewer should confirm.
+
+## Exceptions
+
+Some findings are real features of the paper, not errors to fix. They can
+be accepted with a written justification, and stay visible as
+`exception`:
+
+```{r}
+obs <- v$observation_id[v$rule == "p_range" & v$result == "fail"]
+ex_tab <- data.frame(rule = "p_range", id = obs,
+                     justification = "P = 1.30 is printed in the source; reported to the journal")
+v2 <- sc_validate(x, exceptions = ex_tab)$validation
+v2[v2$rule == "p_range", c("result", "justification")]
+```
+
+## Corrections
+
+A reviewer's correction is a new record. The original stays, marked
+`superseded`, and the new record names the reviewer, the reason and the
+record it replaces. Its evidence is the original's evidence.
+
+```{r}
+t2 <- sc_extract(sc_parse(ex("trial_tables.pdf")), "numerical_results")
+id <- t2$records$record_id[which(t2$records$statistic == "dispersion")][1]
+t2 <- sc_correct(t2, id, value = "13.2", reviewer = "reviewer 1",
+                 reason = "Statistical methods state values are mean and SD",
+                 statistic = "sd", dispersion_type = "sd")
+t2$records[t2$records$record_id == id | t2$records$supersedes %in% id,
+           c("record_id", "statistic", "value", "status", "data_origin", "supersedes", "reviewer")]
+```
+
+## Derived values
+
+Meta-analysis often needs values that the paper does not print, such as
+the standard error of a log hazard ratio. `sc_derive()` computes them as
+separate records with `data_origin = "derived"`, the ids of their inputs,
+the formula and the software:
+
+```{r}
+d <- sc_derive(sc_extract(sc_parse(ex("trial_tables.pdf"))), c("log_ratio", "se_log_ratio", "sd_from_se"))
+dv <- d$records[d$records$data_origin == "derived", ]
+dv[, c("outcome", "arm", "statistic", "value", "inputs", "formula", "notes")]
+```
+
+Derivations never guess a missing input. A confidence interval without a
+stated level is skipped unless you set `assume_level`, and the assumption
+is written into the record:
+
+```{r}
+u <- sc_extract(sc_parse(ex("trial_tables.pdf")))
+u$records$ci_level <- NA_real_
+nrow(sc_derive(u, "se_log_ratio")$records) == nrow(u$records)
+a <- sc_derive(u, "se_log_ratio", assume_level = 95)$records
+unique(a$notes[a$statistic %in% "se_log"])
+```
+
+Derived records are excluded from validation: they are checked through
+their inputs.

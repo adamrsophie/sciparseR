@@ -1,0 +1,435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://adamrsophie.github.io/sciparseR/schema/sc_extraction-1.0.0.json",
+  "title": "sciparseR sc_extraction export, schema version 1.0.0",
+  "type": "object",
+  "required": ["object_type", "schema_version", "records", "evidence", "validation"],
+  "properties": {
+    "object_type": {
+      "const": "sc_extraction"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "doc_id": {
+      "type": "string"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "schema": {
+      "type": "object"
+    },
+    "engine": {
+      "type": "object"
+    },
+    "llm": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "package_version": {
+      "type": "string"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "record_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doc_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "statistic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value_num": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data_origin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "population": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "arm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comparator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timepoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "analysis_set": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effect_measure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "adjusted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "ci_level": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p_operator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dispersion_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "binding": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "engine": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validation_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inputs": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "formula": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "software": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reviewer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doc_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "section_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "section_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "table_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cell_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "figure_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "xpath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "char_start": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "char_end": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "value_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "x0": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "y0": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "x1": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "y1": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "bbox_scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record_ids": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "justification": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
