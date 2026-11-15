@@ -71,19 +71,27 @@ sc_evaluate <- function(doc, truth, threshold = 0.9) {
     tid <- cand$table_id[1]
     m <- sc_table_to_matrix(doc, tid, join_continuations = FALSE)
     dims_ok <- nrow(m) == nr && ncol(m) == nc
-    acc <- if (dims_ok) {
-      tm <- matrix(unlist(lapply(tcells, function(r) vapply(r, function(z) z %||% "", ""))), nr, nc, byrow = TRUE)
-      # markers count as part of the cell text in the truth files
-      d2 <- doc
-      d2$cells$text <- d2$cells$text_raw
-      mr <- sc_table_to_matrix(d2, tid, join_continuations = FALSE)
-      sq <- function(z) gsub(" ", "", norm_cmp(z))
-      mean(norm_cmp(tm) == norm_cmp(m) | sq(tm) == sq(mr))
-    } else {
-      tv <- norm_cmp(unlist(tcells))
-      tv <- tv[nzchar(tv)]
-      mean(tv %in% norm_cmp(m))
-    }
+    # position-aware: cells are compared at the same row and column; when
+    # the grids differ in size, missing and extra positions count as errors
+    tm <- do.call(rbind, lapply(tcells, function(r) {
+      v <- vapply(r, function(z) z %||% "", "")
+      length(v) <- nc
+      v[is.na(v)] <- ""
+      v
+    }))
+    # markers count as part of the cell text in the truth files
+    d2 <- doc
+    d2$cells$text <- d2$cells$text_raw
+    mr <- sc_table_to_matrix(d2, tid, join_continuations = FALSE)
+    sq <- function(z) gsub(" ", "", norm_cmp(z))
+    rr <- min(nrow(m), nr)
+    cc <- min(ncol(m), nc)
+    hits <- if (rr && cc) {
+      a <- tm[seq_len(rr), seq_len(cc), drop = FALSE]
+      sum(norm_cmp(a) == norm_cmp(m[seq_len(rr), seq_len(cc), drop = FALSE]) |
+            sq(a) == sq(mr[seq_len(rr), seq_len(cc), drop = FALSE]))
+    } else 0
+    acc <- hits / (max(nrow(m), nr) * max(ncol(m), nc))
     cl <- doc$cells[doc$cells$table_id == tid & doc$cells$col_span > 1L, , drop = FALSE]
     spans_ok <- all(vapply(t$spans %||% list(), function(s) any(cl$row == s$row & cl$col == s$col & cl$col_span == s$ncol), logical(1)))
     tdet <- rbind(tdet, data.frame(label = lab, page = t$page, found = TRUE, dims_ok = dims_ok,

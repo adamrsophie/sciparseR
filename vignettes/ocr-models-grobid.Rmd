@@ -26,7 +26,10 @@ Scanned pages have no text layer. sciparseR detects them (ink on the
 rendered page, no words) and marks them `ocr_status = "needed"`. With
 `ocr = "auto"` and the tesseract package installed, those pages are
 rendered to a temporary image and recognized; `ocr = "always"` replaces
-the text layer of every page.
+the text layer of every page, together with the lines, tables and
+captions built from it. OCR pages get paragraphs only: headings, tables
+and figures are not detected on them, and sections are rebuilt from the
+headings of the other pages.
 
 ```{r, eval = has_ocr}
 doc <- sc_parse(ex("scanned.pdf"), config = sc_config(ocr = "auto", ocr_language = "eng", ocr_dpi = 300))
@@ -83,7 +86,7 @@ sc_model_remove("demo-layout", registry = reg)
 
 ## GROBID
 
-[GROBID](https://github.com/kermitt2/grobid) is a mature service for
+[GROBID](https://github.com/grobidOrg/grobid) is a mature service for
 header metadata and references. sciparseR never calls it. If you run it
 yourself, read its TEI output and compare:
 

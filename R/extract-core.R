@@ -2,11 +2,16 @@
 # labels, sentence splitting with offsets, evidence records and extraction
 # records.
 
-num_re <- "[-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?|[-+]?\\.[0-9]+"
+# A complete number: optional sign, thousands separators, decimals and an
+# exponent written as "1e-5", "1.2 x 10^-5" or "1.2 \u00d7 10\u22125". The
+# lookbehind stops matches that start inside another number or word.
+num_re <- paste0("(?<![0-9A-Za-z.])(?:[-+\u2212]?(?:(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?|\\.[0-9]+)",
+                 "(?:[eE][-+\u2212]?[0-9]+|\\s?[x\u00d7]\\s?10\\^?[-+\u2212]?[0-9]+)?)")
 
 as_num <- function(x) {
   x <- gsub(",(?=[0-9]{3}\\b)", "", x, perl = TRUE)
   x <- gsub("[\u2212\u2013]", "-", x)
+  x <- gsub("\\s?[x\u00d7]\\s?10\\^?", "e", x)
   suppressWarnings(as.numeric(x))
 }
 
@@ -144,7 +149,8 @@ match_vocab <- function(text, vocab) {
 
 timepoint_re <- paste0(
   "\\b(?:at|after|by|through|over|to)\\s+(?:week|month|year|day)\\s+[0-9]+\\b|",
-  "\\b(?:at|after|by|through|over|to)\\s+[0-9]+(?:\\.[0-9]+)?\\s+(?:days?|weeks?|months?|years?)\\b|",
+  # "to 65 years" is left out: it is usually the end of an age range
+  "\\b(?:at|after|by|through|over)\\s+[0-9]+(?:\\.[0-9]+)?\\s+(?:days?|weeks?|months?|years?)\\b|",
   "\\b[0-9]+[- ](?:day|week|month|year)\\b")
 
 normalize_timepoint <- function(x) {
@@ -179,16 +185,30 @@ span_run <- function(span_text, value_text, block_text, char_start) {
   toks <- toks[nzchar(toks)]
   k <- length(toks)
   if (!k || length(st) < k) return(integer())
-  hit <- function(a, b) a == b || (nzchar(a) && (startsWith(a, b) || endsWith(a, b)))
-  starts <- which(vapply(seq_len(length(st) - k + 1L), function(i) {
+  find <- function(hit) which(vapply(seq_len(length(st) - k + 1L), function(i) {
     all(mapply(hit, st[i:(i + k - 1L)], toks))
   }, logical(1)))
-  if (!length(starts)) return(integer())
-  if (length(starts) > 1L) {
-    if (is.na(char_start) || is.na(block_text)) return(integer())
-    # approximate the character position of each span in the block text
+  exact <- find(function(a, b) a == b)
+  # a word that only contains the value (a number glued to punctuation,
+  # "p=1") is a candidate too; exact matches win ties
+  part <- setdiff(find(function(a, b) nzchar(a) && (startsWith(a, b) || endsWith(a, b))), exact)
+  cand <- c(exact, part)
+  if (!length(cand)) return(integer())
+  if (!is.na(char_start) && !is.na(block_text)) {
+    # approximate character position of each span in the block text
     pos <- cumsum(c(1L, nchar(normalize_text(span_text[-length(span_text)])) + 1L))[keep]
-    starts <- starts[which.min(abs(pos[starts] - char_start))]
+    d <- abs(pos[cand] - char_start) + c(rep(0, length(exact)), rep(0.5, length(part)))
+    starts <- cand[which.min(d)]
+  } else if (length(exact) == 1L) {
+    starts <- exact
+  } else if (!length(exact) && length(part) == 1L) {
+    starts <- part
+  } else {
+    return(integer())
   }
-  keep[starts]:keep[starts + k - 1L]
+  first <- keep[starts]
+  # a sign written as its own word belongs to the value ("- 1.2")
+  if (grepl("^[-+\u2212]", trimws(value_text)) && first > 1L &&
+      grepl("^[-+\u2212]$", trimws(normalize_text(span_text[first - 1L])))) first <- first - 1L
+  first:keep[starts + k - 1L]
 }

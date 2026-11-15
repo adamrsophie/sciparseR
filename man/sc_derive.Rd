@@ -8,7 +8,8 @@ sc_derive(
   x,
   what = c("percent", "log_ratio", "se_log_ratio", "sd_from_se"),
   n = NULL,
-  assume_level = NULL
+  assume_level = NULL,
+  allow_randomized_n = FALSE
 )
 }
 \arguments{
@@ -21,6 +22,9 @@ labels) for \code{"sd_from_se"}.}
 
 \item{assume_level}{Confidence level (in percent) to assume when it is
 not stated; \code{NULL} (the default) skips such intervals.}
+
+\item{allow_randomized_n}{Use the allocated arm size when no analyzed
+\code{n} is reported or supplied. Off by default.}
 }
 \value{
 The extraction with derived records appended.
@@ -40,9 +44,12 @@ reported.
 \item \code{"se_log_ratio"}: standard error of the log ratio from a confidence
 interval, \code{(log(upper) - log(lower)) / (2 * qnorm(1 - (1 - level) / 2))}.
 Requires a stated confidence level, or \code{assume_level}.
-\item \code{"sd_from_se"}: \code{se * sqrt(n)}, with \code{n} from \code{n} or from a unique
-\code{arm_n} record for the same arm. Only applied to dispersions labelled
-SE.
+\item \code{"sd_from_se"}: \code{se * sqrt(n)}, only for dispersions labelled SE.
+\code{n} must be the number analyzed for that result. It is taken, in this
+order, from an \code{n} or denominator reported with the result, from \code{n},
+or, only with \code{allow_randomized_n = TRUE}, from a unique \code{arm_n}
+record for the arm (the allocated arm size, which can differ from the
+number analyzed; the record notes say so). Otherwise no SD is derived.
 }
 }
 \examples{

@@ -19,7 +19,9 @@ library(sciparseR)
 records why. With a cache directory, each result is stored under a key
 built from the SHA-256 of the file, the configuration hash, the package,
 schema and pdftools versions. A file is parsed again only when one of
-these changes; renaming or moving a file does not invalidate the cache.
+these changes; renaming or moving a file does not invalidate the cache,
+and a cache hit points to the file's current path and name. An entry
+that cannot be read is parsed again and replaced.
 
 ```{r}
 files <- system.file("extdata", c("single_column.pdf", "two_column.pdf", "trial_tables.pdf",
@@ -78,7 +80,9 @@ dir.create(out, showWarnings = FALSE)
 The JSON file holds every entity table and the provenance lists. The
 absolute path of the source is left out unless `include_path = TRUE`; the
 file name and checksum are always there. Reading it back restores the
-column types exactly.
+column types of every table and the types of the metadata fields. A
+document read back without its path cannot be highlighted or cropped
+until `doc$source$path` is set to the PDF file.
 
 ```{r}
 f <- sc_export_json(doc, file.path(out, "doc.json"))

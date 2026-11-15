@@ -51,10 +51,11 @@ v[v$result != "pass", c("rule", "severity", "result", "message")]
 | `cross_source_conflict` | text and table agree on the same quantity |
 | `type` | numeric fields parse as numbers |
 
-The conflict rule compares two values only when outcome, arms, measure,
-statistic and adjustment match. If time point or analysis set differ, they
-are not compared. If one side leaves them unbound (as the text does
-here), a difference is a `possible_conflict`, not a certain one.
+The conflict rule compares two values only when outcome, measure and
+statistic match. If arms, time point, analysis set or adjustment differ,
+they are not compared. If one side leaves them unbound (a sentence such as
+"the hazard ratio for death was 0.57" names no arms and no time point), a
+difference is a `possible_conflict`, not a certain one.
 
 Each record gets the worst result of the rules that touched it:
 
@@ -110,9 +111,24 @@ separate records with `data_origin = "derived"`, the ids of their inputs,
 the formula and the software:
 
 ```{r}
-d <- sc_derive(sc_extract(sc_parse(ex("trial_tables.pdf"))), c("log_ratio", "se_log_ratio", "sd_from_se"))
+d <- sc_derive(sc_extract(sc_parse(ex("trial_tables.pdf"))), c("log_ratio", "se_log_ratio"))
 dv <- d$records[d$records$data_origin == "derived", ]
-dv[, c("outcome", "arm", "statistic", "value", "inputs", "formula", "notes")]
+dv[, c("outcome", "arm", "statistic", "value", "inputs", "formula")]
+```
+
+An SD from an SE needs the number of patients *analyzed* for that result.
+sciparseR uses an n reported with the result, or one you supply. The
+allocated arm size is used only when you ask for it, and the record then
+says that it is an assumption, because the number analyzed is often
+smaller than the number randomized:
+
+```{r}
+e <- sc_extract(sc_parse(ex("trial_tables.pdf")))
+nrow(sc_derive(e, "sd_from_se")$records) == nrow(e$records)
+s1 <- sc_derive(e, "sd_from_se", n = c("Drug A" = 118, "placebo" = 117))$records
+s1[s1$statistic %in% "sd", c("arm", "value", "notes")]
+s2 <- sc_derive(e, "sd_from_se", allow_randomized_n = TRUE)$records
+s2$notes[s2$statistic %in% "sd"][1]
 ```
 
 Derivations never guess a missing input. A confidence interval without a

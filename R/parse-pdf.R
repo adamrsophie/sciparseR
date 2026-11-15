@@ -79,10 +79,10 @@ parse_pdf <- function(path, cfg, log) {
   pages <- geom
   pages$n_words <- vapply(seq_len(n_pages), function(p) sum(words$page == p), integer(1))
   pages$has_text_layer <- pages$n_words > 0L
-  pages$image_only <- NA
-  pages$ink_ratio <- NA_real_
-  pages$ocr_status <- "not_needed"
-  pages$n_columns <- NA_integer_
+  pages$image_only <- rep(NA, nrow(pages))
+  pages$ink_ratio <- rep(NA_real_, nrow(pages))
+  pages$ocr_status <- rep("not_needed", nrow(pages))
+  pages$n_columns <- rep(NA_integer_, nrow(pages))
   blocks_all <- list()
   block_lines <- list()
   tables_all <- cells_all <- fns_all <- figs_all <- eqs_all <- list()
@@ -362,12 +362,14 @@ link_continuations <- function(blocks) {
 }
 
 link_table_continuations <- function(tables, captions, pages, cfg, log) {
-  tables$continuation_status <- NA_character_
+  tables$continuation_status <- rep(NA_character_, nrow(tables))
   for (i in seq_len(nrow(tables))) {
     cap <- captions$text[match(tables$caption_id[i], captions$caption_id)]
     lab <- tables$label[i]
     if (!is.na(cap) && grepl("\\(?\\bcont(inued|\\.|'d)\\b\\)?", cap, ignore.case = TRUE) && !is.na(lab)) {
-      prev <- which(tables$label == lab & seq_len(nrow(tables)) < i & is.na(tables$continuation_of))
+      # the latest earlier part of the same table, so that a chain over
+      # three or more pages links each part to the one before it
+      prev <- which(tables$label == lab & seq_len(nrow(tables)) < i)
       if (length(prev)) {
         p <- prev[length(prev)]
         tables$continuation_of[i] <- tables$table_id[p]

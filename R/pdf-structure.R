@@ -173,7 +173,7 @@ section_label <- function(title) {
 build_sections <- function(blocks) {
   hb <- blocks[blocks$type == "heading", , drop = FALSE]
   if (!nrow(hb)) {
-    blocks$section_id <- NA_character_
+    blocks$section_id <- rep(NA_character_, nrow(blocks))
     return(list(sections = empty_entity("sections"), blocks = blocks))
   }
   nums <- vapply(hb$text, heading_number, character(1))
@@ -210,7 +210,7 @@ build_sections <- function(blocks) {
     if (is.na(inherited[i]) && !is.na(parent[i])) inherited[i] <- inherited[match(parent[i], sid)]
   }
   # assign blocks to the deepest open section
-  blocks$section_id <- NA_character_
+  blocks$section_id <- rep(NA_character_, nrow(blocks))
   hpos <- match(hb$block_id, blocks$block_id)
   for (i in seq_along(hpos)) {
     end <- if (i < length(hpos)) hpos[i + 1L] - 1L else nrow(blocks)
@@ -233,7 +233,7 @@ build_sections <- function(blocks) {
 
 doi_regex <- "10\\.[0-9]{4,9}/[^[:space:]\"<>]+"
 
-clean_doi <- function(x) sub("[.,;:)\\]]+$", "", x)
+clean_doi <- function(x) sub("[].,;:)]+$", "", x)
 
 parse_reference <- function(text) {
   t <- normalize_text(text)

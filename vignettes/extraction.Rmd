@@ -108,8 +108,9 @@ w[w$field == "result", c("outcome", "arm", "comparator", "timepoint", "analysis_
 Text and table report the primary outcome twice: in the text without a
 time point, in Table 2 at 12 months in the intention-to-treat population.
 They are separate observations; the validator compares them and reports
-that they agree. Values at different time points or in different analysis
-sets are never merged.
+that they agree. Each estimate takes the time point and analysis set of
+its own clause; when a sentence names several and the clause does not
+settle which one applies, the field stays `NA` with binding `ambiguous`.
 
 ## Ambiguity is explicit
 

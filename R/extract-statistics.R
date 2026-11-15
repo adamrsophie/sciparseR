@@ -52,12 +52,20 @@ adjusted_status <- function(prefix_text, token) {
 
 subject_verbs <- "\\b(occurred|was|were|decreased|increased|improved|reduced|declined|changed|differed|did not differ|fell|rose|developed|died)\\b"
 
-sentence_subject <- function(st) {
+sentence_subject <- function(st, arms = character()) {
   s <- sub("^(?i)(in|among|for) the [^,]{1,60}(population|analysis|set|group|cohort),\\s*", "", st, perl = TRUE)
+  s <- sub("^(?i)(compared (with|to)|relative to|versus|vs\\.?) [^,]{1,60},\\s*", "", s, perl = TRUE)
   m <- regexpr(subject_verbs, s, perl = TRUE, ignore.case = TRUE)
   if (m < 2) return(NA_character_)
   subj <- trimws(substr(s, 1, m - 1L))
   subj <- sub("(?i)^(the|a|an)\\s+", "", subj, perl = TRUE)
+  if (length(arms) && !is.na(match_arm(subj, arm_aliases(arms)))) {
+    # "Drug A reduced mortality": the arm is the subject, the outcome the object
+    obj <- regmatches(substring(s, m + attr(m, "match.length")),
+                      regexec("^\\s+(?:the )?([A-Za-z][A-Za-z -]{1,50}?)\\s*(?:\\(|,|;|\\.|$|\\b(?:by|in|at|compared|versus|vs|relative|than|from|to)\\b)",
+                              substring(s, m + attr(m, "match.length")), perl = TRUE))[[1]]
+    return(if (length(obj)) tolower(trimws(obj[2])) else NA_character_)
+  }
   if (grepl(paste0("(?i)", paste(c(measure_full, "\\bratio\\b|\\bdifference\\b|\\bincidence\\b"), collapse = "|")), subj, perl = TRUE)) return(NA_character_)
   if (nchar(subj) > 80 || !nzchar(subj) || grepl("^[0-9]", subj)) return(NA_character_)
   tolower(subj)
@@ -89,10 +97,108 @@ arms_in_text <- function(text, arms) {
   unname(arms[names(arms)[found][order(pos[found])]])
 }
 
+# Clauses of a sentence, so that a value takes its context (time point,
+# analysis set, outcome, arm) from its own clause: "10 of 100 at 6 months
+# and 20 of 100 at 12 months" has two clauses. A plain "and" splits only
+# between two parts that both hold numbers, and never in "between 6 and 12".
+clause_bounds <- function(st) {
+  cut <- gregexpr("\\s*;\\s*|,\\s+(?:and|but|while|whereas)\\s+|\\s+(?:and|but|while|whereas)\\s+", st, perl = TRUE)[[1]]
+  starts <- 1L
+  if (cut[1] > 0) {
+    len <- attr(cut, "match.length")
+    for (k in seq_along(cut)) {
+      a <- cut[k]
+      sep <- substr(st, a, a + len[k] - 1L)
+      left <- substr(st, starts[length(starts)], a - 1L)
+      right <- substr(st, a + len[k], nchar(st))
+      if (!grepl("[;,]", sep)) {
+        if (!grepl("[0-9]", left) || !grepl("[0-9]", right)) next
+        if (grepl("(?i)\\b(between|from)\\s+\\S+$", left, perl = TRUE)) next
+        if (grepl("[0-9]\\s*$", left) && grepl("^\\s*[0-9]", right)) next
+      }
+      starts <- c(starts, a + len[k])
+    }
+  }
+  data.frame(start = starts, end = c(starts[-1] - 1L, nchar(st)),
+             text = substring(st, starts, c(starts[-1] - 1L, nchar(st))), stringsAsFactors = FALSE)
+}
+
+# Context of the value at character `pos` of sentence `st`.
+value_context <- function(st, pos, cl, sent_outcome, arms = character()) {
+  k <- max(which(cl$start <= pos))
+  ct <- cl$text[k]
+  pick <- function(f, nm) {
+    own <- f(ct)
+    if (!is.na(own)) return(list(own, paste0(nm, "=clause")))
+    all <- unique(stats::na.omit(vapply(cl$text, f, character(1))))
+    if (length(all) == 1L) return(list(all, paste0(nm, "=sentence")))
+    if (length(all) > 1L) return(list(NA_character_, paste0(nm, "=ambiguous")))
+    list(NA_character_, NULL)
+  }
+  tp <- pick(find_timepoint, "timepoint")
+  as <- pick(find_analysis_set, "analysis_set")
+  out <- sent_outcome
+  ob <- if (is.na(out)) "outcome=unbound" else "outcome=sentence_subject"
+  if (k > 1L) {
+    cs <- sentence_subject(ct, arms)
+    if (!is.na(cs)) {
+      out <- cs
+      ob <- "outcome=clause_subject"
+    } else if (!is.na(out) && grepl("(?i)\\b(?:and|but|whereas|while)\\W*$", cl$text[k - 1L], perl = TRUE) &&
+               grepl("(?i)\\b(?:was|were|is|are)\\b", ct, perl = TRUE)) {
+      # an independent clause with its own verb: the sentence subject belongs
+      # to an earlier clause ("The dose was increased from 5 to 10 mg, and
+      # the odds ratio was 1.50"), so the outcome is not bound
+      out <- NA_character_
+      ob <- "outcome=unbound"
+    }
+  }
+  list(timepoint = tp[[1]], analysis_set = as[[1]], outcome = out, clause = ct,
+       bind = c(ob, tp[[2]], as[[2]]))
+}
+
+# Arm and comparator of a comparative estimate. The comparator is the arm
+# named after "compared with", "versus", "vs", "relative to" or "than";
+# without such a cue the direction is not stated and both stay unbound.
+comparison_arms <- function(text, arms) {
+  found <- arms_in_text(text, arms)
+  if (length(found) < 2L) return(list(arm = NA_character_, comparator = NA_character_, bind = "comparison=unbound"))
+  cue <- "(?i)\\b(?:compared (?:with|to)|versus|vs\\.?|relative to|than(?: with| in)?)\\s+(?:the\\s+)?"
+  for (a in found) {
+    if (grepl(paste0(cue, gsub("([.()+*?])", "\\\\\\1", a), "\\b"), text, perl = TRUE)) {
+      other <- setdiff(found, a)
+      if (length(other) == 1L) return(list(arm = other, comparator = a, bind = "comparison=comparator_cue"))
+    }
+  }
+  if (grepl("(?i)\\b(?:compared (?:with|to)|versus|vs\\.?|relative to)\\b", text, perl = TRUE)) {
+    # a comparison cue that names no arm: the direction is not stated
+    return(list(arm = NA_character_, comparator = NA_character_, bind = "comparison=no_direction_cue"))
+  }
+  # "... in the Drug A group and ... in the placebo group (HR ...)": the
+  # conventional reading is first arm versus second arm
+  list(arm = found[1], comparator = found[2], bind = "comparison=arm_mention_order")
+}
+
+# SD or SE label of one plus-minus pair: written right after the pair,
+# else in its clause, else in the sentence when only one label is used.
+dispersion_label <- function(after, clause, st) {
+  lab <- function(z) {
+    sd <- grepl("\\bSD\\b|standard deviation", z)
+    se <- grepl("\\bSEM?\\b|standard error", z)
+    if (sd && !se) "sd" else if (se && !sd) "se" else if (sd && se) "both" else NA_character_
+  }
+  a <- lab(substr(after, 1L, 25L))
+  if (!is.na(a) && a != "both") return(a)
+  c1 <- lab(clause)
+  if (!is.na(c1) && c1 != "both") return(c1)
+  s1 <- lab(st)
+  if (!is.na(s1) && s1 != "both") s1 else NA_character_
+}
+
 rule_text_statistics <- function(col, units, arms) {
   arms <- arm_aliases(arms)
   u <- units[units$type %in% c("paragraph", "footnote") & units$section_label %in% c("abstract", "results", NA), , drop = FALSE]
-  ci_re <- paste0("^[^0-9]{0,40}?(?:([0-9]{2}(?:\\.[0-9]+)?)%\\s*(?:CI|confidence interval|CrI|credible interval)[,:]?\\s*)?\\(?\\s*(",
+  ci_re <- paste0("^[^0-9]{0,40}?(?:([0-9]{2}(?:\\.[0-9]+)?)%\\s*(?:CI|confidence interval|CrI|credible interval)(?:\\s*\\[(?:CI|CrI)\\])?[,:]?\\s*)?\\(?\\s*(",
                   num_re, ")\\s*(?:to|\u2013|\u2014|-|,)\\s*(", num_re, ")")
   p_re <- paste0("\\b[Pp]\\s*(=|<|>|\u2264|\u2265)\\s*(", num_re, ")")
   for (i in seq_len(nrow(u))) {
@@ -105,12 +211,8 @@ rule_text_statistics <- function(col, units, arms) {
       ev_at <- function(a, len) add_evidence(col, block_id = bid, char_start = off + a,
                                              char_end = off + a + len - 1L,
                                              value_text = substr(st, a, a + len - 1L))
-      outcome <- sentence_subject(st)
-      out_bind <- if (is.na(outcome)) "outcome=unbound" else "outcome=sentence_subject"
-      tp <- find_timepoint(st)
-      aset <- find_analysis_set(st)
-      ctx_bind <- c(out_bind, if (!is.na(tp)) "timepoint=sentence", if (!is.na(aset)) "analysis_set=sentence")
-      sent_arms <- arms_in_text(st, arms)
+      outcome <- sentence_subject(st, arms)
+      clauses <- clause_bounds(st)
       # effect measures
       ms <- find_measures(st)
       claimed <- integer()
@@ -119,61 +221,88 @@ rule_text_statistics <- function(col, units, arms) {
         mend <- mstart + ms$length[k]
         nxt <- if (k < nrow(ms)) ms$start[k + 1L] - 1L else nchar(st)
         win <- substr(st, mend, nxt)
-        em <- regexpr(paste0("^[^0-9.;]{0,30}?(?:was |of |=|:|,|\\()\\s*(", num_re, ")"), win, perl = TRUE)
+        # the number may follow after a phrase without digits: "the hazard
+        # ratio for death with Drug A versus placebo was 0.57"
+        em <- regexpr(paste0("^[^0-9;]{0,120}?(?:was |were |of |=|:|,|\\()\\s*(", num_re, ")"), win, perl = TRUE)
         if (em < 0) em <- regexpr(paste0("^\\s*(", num_re, ")"), win, perl = TRUE)
         if (em < 0) next
-        ecs <- attr(em, "capture.start")[1]
-        ecl <- attr(em, "capture.length")[1]
-        est_txt <- substr(win, ecs, ecs + ecl - 1L)
-        est_pos <- mend + ecs - 1L
         prefix <- substr(st, max(1L, mstart - 25L), mstart + ms$length[k] - 1L)
         token <- substr(st, mstart, mend - 1L)
+        # an abbreviation alone ("HR was 72 beats per minute") is a measure
+        # only when an interval or p-value follows
+        abbr <- !grepl(paste0("(?i)", paste(measure_full, collapse = "|")), token, perl = TRUE)
         adj <- adjusted_status(prefix, token)
-        m_out <- outcome
-        m_bind <- out_bind
-        fo <- regmatches(win, regexec("^\\s+for (?:the )?([A-Za-z][A-Za-z -]{1,60}?) (?:was|were|of|is)\\b", win, perl = TRUE))[[1]]
-        if (length(fo)) {
-          m_out <- tolower(fo[2])
-          m_bind <- "outcome=measure_for_phrase"
-        }
-        obs <- next_observation(col)
-        cmp <- if (length(sent_arms) >= 2L) sent_arms[1:2] else c(NA_character_, NA_character_)
-        bind <- paste(c(m_bind, ctx_bind[-1], if (!is.na(cmp[1])) "comparison=sentence_arm_order" else "comparison=unbound",
-                        if (is.na(adj)) "adjustment=not_stated" else "adjustment=sentence"), collapse = "; ")
-        common <- list(outcome = m_out, timepoint = tp, analysis_set = aset, effect_measure = ms$measure[k],
-                       adjusted = adj, arm = cmp[1], comparator = cmp[2], binding = bind,
-                       observation_id = obs, method = "rules:text_effect")
-        do.call(add_record, c(list(col, "result", est_txt, statistic = "estimate", value_num = as_num(est_txt),
-                                   evidence_id = ev_at(est_pos, ecl)), common))
-        rest <- substring(win, ecs + ecl)
-        rest_off <- est_pos + ecl
-        cm <- regexpr(ci_re, rest, perl = TRUE)
-        if (cm > 0 && grepl("(?i)CI|confidence|^\\s*[(,;]", substr(rest, 1, attr(cm, "match.length")), perl = TRUE)) {
-          cs <- attr(cm, "capture.start")
-          cl <- attr(cm, "capture.length")
-          lvl <- if (cl[1] > 0) as_num(substr(rest, cs[1], cs[1] + cl[1] - 1L)) else NA_real_
-          lo <- substr(rest, cs[2], cs[2] + cl[2] - 1L)
-          hi <- substr(rest, cs[3], cs[3] + cl[3] - 1L)
-          common$ci_level <- lvl
-          do.call(add_record, c(list(col, "result", lo, statistic = "ci_lower", value_num = as_num(lo),
-                                     evidence_id = ev_at(rest_off + cs[2] - 1L, cl[2])), common))
-          do.call(add_record, c(list(col, "result", hi, statistic = "ci_upper", value_num = as_num(hi),
-                                     evidence_id = ev_at(rest_off + cs[3] - 1L, cl[3])), common))
-          if (is.na(lvl)) col$records[[length(col$records)]]$notes <- "confidence level not stated"
-        }
-        pm <- regexpr(p_re, rest, perl = TRUE)
-        if (pm > 0) {
-          cs <- attr(pm, "capture.start")
-          cl <- attr(pm, "capture.length")
-          pv <- substr(rest, cs[2], cs[2] + cl[2] - 1L)
-          common$p_operator <- substr(rest, cs[1], cs[1] + cl[1] - 1L)
-          do.call(add_record, c(list(col, "result", pv, statistic = "p_value", value_num = as_num(pv),
-                                     evidence_id = ev_at(rest_off + cs[2] - 1L, cl[2])), common))
-          claimed <- c(claimed, rest_off + pm - 1L)
+        fo <- regmatches(win, regexec("^\\s+for (?:the )?([A-Za-z][A-Za-z -]{1,60}?) (?:was|were|of|is|with|in|among)\\b", win, perl = TRUE))[[1]]
+        ecs <- attr(em, "capture.start")[1]
+        ecl <- attr(em, "capture.length")[1]
+        # several estimates may follow one measure name: "0.80 (95% CI ...)
+        # at 6 months and 0.70 (95% CI ...) at 12 months"
+        repeat {
+          est_txt <- substr(win, ecs, ecs + ecl - 1L)
+          est_pos <- mend + ecs - 1L
+          after <- substring(win, ecs + ecl)
+          nx <- regexpr(paste0("(?i)^[^;]*?\\)[^;(]{0,40}?\\b(?:and|or|versus|vs\\.?|compared with)\\s+(", num_re, ")\\s*\\("), after, perl = TRUE)
+          rest <- if (nx > 0) substr(after, 1L, attr(nx, "capture.start")[1] - 1L) else after
+          rest_off <- est_pos + ecl
+          cm <- regexpr(ci_re, rest, perl = TRUE)
+          has_ci <- cm > 0 && grepl("\\bCI\\b|\\bCrI\\b|(?i:confidence interval|credible interval)|^\\s*[(,;]\\s*(?:[0-9]{2}%\\s*)?[-+\u2212]?[0-9.]", substr(rest, 1, attr(cm, "match.length")), perl = TRUE)
+          pm <- regexpr(p_re, rest, perl = TRUE)
+          if (abbr && !has_ci && pm < 0) break
+          cx <- value_context(st, est_pos, clauses, outcome, arms)
+          # with several estimates after one measure name, each takes the
+          # time point written right after it
+          if (nx > 0 || est_pos > mend + attr(em, "capture.start")[1] - 1L) {
+            own_tp <- find_timepoint(rest)
+            if (!is.na(own_tp)) {
+              cx$timepoint <- own_tp
+              cx$bind[2] <- "timepoint=estimate_phrase"
+            }
+          }
+          m_out <- cx$outcome
+          m_bind <- cx$bind[1]
+          if (length(fo)) {
+            m_out <- tolower(fo[2])
+            m_bind <- "outcome=measure_for_phrase"
+          }
+          obs <- next_observation(col)
+          cmp <- comparison_arms(cx$clause, arms)
+          if (is.na(cmp$arm) && cmp$bind != "comparison=no_direction_cue") cmp <- comparison_arms(st, arms)
+          bind <- paste(c(m_bind, cx$bind[-1], cmp$bind,
+                          if (is.na(adj)) "adjustment=not_stated" else "adjustment=sentence"), collapse = "; ")
+          common <- list(outcome = m_out, timepoint = cx$timepoint, analysis_set = cx$analysis_set, effect_measure = ms$measure[k],
+                         adjusted = adj, arm = cmp$arm, comparator = cmp$comparator, binding = bind,
+                         observation_id = obs, method = "rules:text_effect")
+          do.call(add_record, c(list(col, "result", est_txt, statistic = "estimate", value_num = as_num(est_txt),
+                                     evidence_id = ev_at(est_pos, ecl)), common))
+          if (has_ci) {
+            cs <- attr(cm, "capture.start")
+            cl <- attr(cm, "capture.length")
+            lvl <- if (cl[1] > 0) as_num(substr(rest, cs[1], cs[1] + cl[1] - 1L)) else NA_real_
+            lo <- substr(rest, cs[2], cs[2] + cl[2] - 1L)
+            hi <- substr(rest, cs[3], cs[3] + cl[3] - 1L)
+            common$ci_level <- lvl
+            do.call(add_record, c(list(col, "result", lo, statistic = "ci_lower", value_num = as_num(lo),
+                                       evidence_id = ev_at(rest_off + cs[2] - 1L, cl[2])), common))
+            do.call(add_record, c(list(col, "result", hi, statistic = "ci_upper", value_num = as_num(hi),
+                                       evidence_id = ev_at(rest_off + cs[3] - 1L, cl[3])), common))
+            if (is.na(lvl)) col$records[[length(col$records)]]$notes <- "confidence level not stated"
+          }
+          if (pm > 0) {
+            cs <- attr(pm, "capture.start")
+            cl <- attr(pm, "capture.length")
+            pv <- substr(rest, cs[2], cs[2] + cl[2] - 1L)
+            common$p_operator <- substr(rest, cs[1], cs[1] + cl[1] - 1L)
+            do.call(add_record, c(list(col, "result", pv, statistic = "p_value", value_num = as_num(pv),
+                                       evidence_id = ev_at(rest_off + cs[2] - 1L, cl[2])), common))
+            claimed <- c(claimed, rest_off + pm - 1L)
+          }
+          if (nx < 0) break
+          ecs <- ecs + ecl + attr(nx, "capture.start")[1] - 1L
+          ecl <- attr(nx, "capture.length")[1]
         }
       }
       # counts: "24 of 120 patients (20.0%) in the Drug A group"
-      cm <- gregexpr("\\b([0-9][0-9,]*) (?:of|out of|/) ([0-9][0-9,]*)(?: [a-z]+){0,2}(?: \\(([0-9]+(?:\\.[0-9]+)?)%\\))?(?: (?:in|among|for|with|receiving) (?:the )?([A-Za-z0-9 -]{1,40}?) (?:group|arm|cohort)\\b)?", st, perl = TRUE)[[1]]
+      cm <- gregexpr("(?<![-\u22120-9A-Za-z.,])([-\u2212]?[0-9][0-9,]*) (?:of|out of|/) ([0-9][0-9,]*)(?: [a-z]+){0,2}(?: \\(([0-9]+(?:\\.[0-9]+)?)%\\))?(?: (?:in|among|for|with|receiving) (?:the )?([A-Za-z0-9 -]{1,40}?) (?:group|arm|cohort)\\b)?", st, perl = TRUE)[[1]]
       if (cm[1] > 0) {
         cs <- attr(cm, "capture.start")
         cl <- attr(cm, "capture.length")
@@ -181,9 +310,18 @@ rule_text_statistics <- function(col, units, arms) {
           grab <- function(g) substr(st, cs[j, g], cs[j, g] + cl[j, g] - 1L)
           arm_phrase <- if (cl[j, 4] > 0) grab(4) else NA_character_
           arm <- match_arm(arm_phrase, arms)
+          cx <- value_context(st, cm[j], clauses, outcome, arms)
+          arm_bind <- if (!is.na(arm)) "arm=group_phrase" else "arm=unbound"
+          if (is.na(arm)) {
+            ca <- arms_in_text(cx$clause, arms)
+            if (length(ca) == 1L) {
+              arm <- ca
+              arm_bind <- "arm=clause"
+            }
+          }
           obs <- next_observation(col)
-          common <- list(outcome = outcome, timepoint = tp, analysis_set = aset, arm = arm,
-                         binding = paste(c(ctx_bind, if (!is.na(arm)) "arm=group_phrase" else "arm=unbound"), collapse = "; "),
+          common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, arm = arm,
+                         binding = paste(c(cx$bind, arm_bind), collapse = "; "),
                          observation_id = obs, method = "rules:text_counts")
           do.call(add_record, c(list(col, "result", grab(1), statistic = "events", value_num = as_num(grab(1)),
                                      evidence_id = ev_at(cs[j, 1], cl[j, 1])), common))
@@ -200,18 +338,21 @@ rule_text_statistics <- function(col, units, arms) {
       if (pmm[1] > 0) {
         cs <- attr(pmm, "capture.start")
         cl <- attr(pmm, "capture.length")
-        dtype <- if (grepl("\\bSD\\b|standard deviation", st)) "sd" else if (grepl("\\bSEM?\\b|standard error", st)) "se" else NA_character_
-        arm <- {
-          a <- regmatches(st, regexpr("(?i)(?:with|in the|among) ([A-Za-z0-9 -]{1,40}?)(?: group| arm)?[.;,]?$", st, perl = TRUE))
-          if (length(a)) match_arm(sub("(?i)^(with|in the|among) ", "", sub("[.;,]$", "", a), perl = TRUE), arms) else NA_character_
-        }
         for (j in seq_along(pmm)) {
           grab <- function(g) substr(st, cs[j, g], cs[j, g] + cl[j, g] - 1L)
+          cx <- value_context(st, pmm[j], clauses, outcome, arms)
+          dtype <- dispersion_label(substring(st, cs[j, 2] + cl[j, 2]), cx$clause, st)
+          ca <- arms_in_text(cx$clause, arms)
+          arm <- if (length(ca) == 1L) ca else NA_character_
+          if (is.na(arm) && nrow(clauses) == 1L) {
+            a <- regmatches(st, regexpr("(?i)(?:with|in the|among) ([A-Za-z0-9 -]{1,40}?)(?: group| arm)?[.;,]?$", st, perl = TRUE))
+            if (length(a)) arm <- match_arm(sub("(?i)^(with|in the|among) ", "", sub("[.;,]$", "", a), perl = TRUE), arms)
+          }
           obs <- next_observation(col)
           unit <- regmatches(substring(st, cs[j, 2] + cl[j, 2]), regexpr("^\\s*(mm Hg|mmHg|kg/m2|kg|cm|mg/dL|mmol/L|%|points?|years?)", substring(st, cs[j, 2] + cl[j, 2])))
-          common <- list(outcome = outcome, timepoint = tp, analysis_set = aset, arm = arm,
+          common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, arm = arm,
                          unit = if (length(unit)) trimws(unit) else NA_character_,
-                         binding = paste(c(ctx_bind, if (!is.na(arm)) "arm=sentence_phrase" else "arm=unbound"), collapse = "; "),
+                         binding = paste(c(cx$bind, if (!is.na(arm)) "arm=clause" else "arm=unbound"), collapse = "; "),
                          observation_id = obs, method = "rules:text_mean_pm")
           do.call(add_record, c(list(col, "result", grab(1), statistic = "mean", value_num = as_num(grab(1)),
                                      evidence_id = ev_at(cs[j, 1], cl[j, 1])), common))
@@ -228,7 +369,9 @@ rule_text_statistics <- function(col, units, arms) {
         cs <- attr(mm, "capture.start")
         cl <- attr(mm, "capture.length")
         obs <- next_observation(col)
-        common <- list(outcome = outcome, timepoint = tp, analysis_set = aset, binding = paste(ctx_bind, collapse = "; "),
+        cx <- value_context(st, mm, clauses, outcome, arms)
+        common <- list(outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set,
+                       binding = paste(cx$bind, collapse = "; "),
                        observation_id = obs, method = "rules:text_median_iqr")
         for (g in 1:3) {
           v <- substr(st, cs[g], cs[g] + cl[g] - 1L)
@@ -244,10 +387,11 @@ rule_text_statistics <- function(col, units, arms) {
         for (j in seq_along(pall)) {
           if (any(abs((pall[j]) - claimed) <= 1)) next
           pv <- substr(st, cs[j, 2], cs[j, 2] + cl[j, 2] - 1L)
+          cx <- value_context(st, pall[j], clauses, outcome, arms)
           add_record(col, "result", pv, statistic = "p_value", value_num = as_num(pv),
                      p_operator = substr(st, cs[j, 1], cs[j, 1] + cl[j, 1] - 1L),
-                     outcome = outcome, timepoint = tp, analysis_set = aset,
-                     binding = paste(c(ctx_bind, "comparison=unbound"), collapse = "; "),
+                     outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set,
+                     binding = paste(c(cx$bind, "comparison=unbound"), collapse = "; "),
                      observation_id = next_observation(col), evidence_id = ev_at(cs[j, 2], cl[j, 2]),
                      method = "rules:text_p_value")
         }
@@ -289,23 +433,47 @@ column_headers <- function(cells, n_cols) {
 
 column_role <- function(header, arms) {
   if (is.na(header)) return(list(role = "unknown"))
-  last <- trimws(utils::tail(strsplit(header, "|", fixed = TRUE)[[1]], 1))
+  parts <- trimws(strsplit(header, "|", fixed = TRUE)[[1]])
+  last <- utils::tail(parts, 1)
   ms <- find_measures(last)
   if (nrow(ms)) {
     lvl <- regmatches(last, regexpr("[0-9]{2}(?=%\\s*(CI|confidence))", last, perl = TRUE))
     return(list(role = "effect", measure = ms$measure[1], ci_level = if (length(lvl)) as_num(lvl) else NA_real_,
-                adjusted = adjusted_status(header, substr(last, ms$start[1], ms$start[1] + ms$length[1] - 1L))))
+                adjusted = adjusted_status(header, substr(last, ms$start[1], ms$start[1] + ms$length[1] - 1L)),
+                timepoint = header_timepoint(parts)))
   }
-  if (grepl("(?i)^p(\\s*value)?\\*?$|^p-value|^p for", last, perl = TRUE)) return(list(role = "p"))
-  n <- regmatches(last, regexpr("(?<=[nN]\\s=\\s)[0-9,]+|(?<=[nN]=)[0-9,]+", last, perl = TRUE))
-  arm <- match_arm(last, arms)
-  if (is.na(arm) && length(n)) arm <- trimws(sub("\\s*\\((n|N)\\s*=\\s*[0-9,]+\\)", "", last))
-  if (is.na(arm) && grepl("(?i)placebo|control|intervention|treatment|usual care|group", last, perl = TRUE)) arm <- last
-  if (!is.na(arm)) {
-    if (grepl("(?i)^(total|overall|all)", arm, perl = TRUE)) arm <- "total"
-    return(list(role = "arm", arm = arm, n = if (length(n)) n else NA_character_))
+  if (grepl("(?i)^p(\\s*value)?\\*?$|^p-value|^p for", last, perl = TRUE)) return(list(role = "p", timepoint = header_timepoint(parts)))
+  # "Treatment difference (95% CI)": an effect whose measure is not named
+  if (grepl("(?i)\\bdifference\\b|\\bratio\\b", last, perl = TRUE)) {
+    lvl <- regmatches(last, regexpr("[0-9]{2}(?=%\\s*(CI|confidence))", last, perl = TRUE))
+    return(list(role = "effect", measure = NA_character_, ci_level = if (length(lvl)) as_num(lvl) else NA_real_,
+                adjusted = adjusted_status(header, last), timepoint = header_timepoint(parts)))
+  }
+  # the arm can be named on any header level ("Drug A (n = 100)" spanning
+  # "6 months" and "12 months"); the lowest level that names one wins
+  for (part in rev(parts)) {
+    n <- regmatches(part, regexpr("(?<=[nN]\\s=\\s)[0-9,]+|(?<=[nN]=)[0-9,]+", part, perl = TRUE))
+    arm <- match_arm(part, arms)
+    if (is.na(arm) && length(n)) arm <- trimws(sub("\\s*\\((n|N)\\s*=\\s*[0-9,]+\\)", "", part))
+    if (is.na(arm) && grepl("(?i)placebo|control|intervention|treatment|usual care|group", part, perl = TRUE)) arm <- part
+    if (!is.na(arm)) {
+      if (grepl("(?i)^(total|overall|all)", arm, perl = TRUE)) arm <- "total"
+      return(list(role = "arm", arm = arm, n = if (length(n)) n else NA_character_, timepoint = header_timepoint(parts)))
+    }
   }
   list(role = "unknown")
+}
+
+# A time point written as a header level: "6 months", "Week 12", "12-month".
+header_timepoint <- function(parts) {
+  for (p in parts) {
+    tp <- find_timepoint(p)
+    if (is.na(tp) && grepl("(?i)^(?:at\\s+)?(?:[0-9]+(?:\\.[0-9]+)?\\s*(?:days?|weeks?|months?|years?)|(?:day|week|month|year)\\s+[0-9]+)$", p, perl = TRUE)) {
+      tp <- normalize_timepoint(p)
+    }
+    if (!is.na(tp)) return(tp)
+  }
+  NA_character_
 }
 
 parse_cell_value <- function(txt, hint, role) {
@@ -367,19 +535,34 @@ rule_table_statistics <- function(col, doc, arms) {
     cont <- doc$tables$table_id[doc$tables$continuation_of %in% tb$table_id & doc$tables$continuation_status %in% "joined"]
     caption <- doc$captions$text[match(tb$caption_id, doc$captions$caption_id)]
     caption <- caption %|NA|% ""
-    baseline <- grepl("(?i)baseline|characteristics|demographic", caption, perl = TRUE)
+    # "Change from baseline at week 12" is an outcome table, not Table 1
+    baseline <- grepl("(?i)baseline (characteristics|data|demographics)|characteristics of|demographic|^\\s*(patient |participant )?characteristics", caption, perl = TRUE) &&
+      !grepl("(?i)change from baseline|from baseline to", caption, perl = TRUE)
     field <- if (baseline) "baseline" else "result"
     tp <- if (baseline) "baseline" else find_timepoint(caption)
     aset <- find_analysis_set(caption)
     hdr <- column_headers(cells, tb$n_cols)
     roles <- lapply(hdr, column_role, arms = arms)
     roles[[1]] <- list(role = "label")
+    # when one column is an arm by keyword ("Placebo") and the arms were not
+    # declared, the other plain columns are arms too, named by their header
+    if (any(vapply(roles, function(r) r$role == "arm", logical(1)))) {
+      for (j in seq_along(roles)[-1]) {
+        if (roles[[j]]$role != "unknown" || is.na(hdr[j])) next
+        last <- trimws(utils::tail(strsplit(hdr[j], "|", fixed = TRUE)[[1]], 1))
+        if (grepl("(?i)\\b(difference|ratio|CI|p|value|total|overall|all)\\b", last, perl = TRUE)) next
+        roles[[j]] <- list(role = "arm", arm = arm_name(last), n = NA_character_, timepoint = header_timepoint(strsplit(hdr[j], "|", fixed = TRUE)[[1]]))
+      }
+    }
     arm_cols <- which(vapply(roles, function(r) r$role == "arm" && !identical(r$arm, "total"), logical(1)))
-    cmp <- if (length(arm_cols) == 2L) c(roles[[arm_cols[1]]]$arm, roles[[arm_cols[2]]]$arm) else c(NA_character_, NA_character_)
-    # arm sizes from headers
+    arm_names <- unique(vapply(roles[arm_cols], function(r) r$arm, character(1)))
+    cmp <- if (length(arm_names) == 2L) arm_names else c(NA_character_, NA_character_)
+    # arm sizes from headers, once per arm
+    n_seen <- character()
     for (j in arm_cols) {
       r <- roles[[j]]
-      if (is.na(r$n)) next
+      if (is.na(r$n) || r$arm %in% n_seen) next
+      n_seen <- c(n_seen, r$arm)
       hc <- cells[cells$is_header & cells$col <= j & cells$col + cells$col_span - 1L >= j & grepl(r$n, cells$text, fixed = TRUE), , drop = FALSE]
       if (!nrow(hc)) next
       pos <- regexpr(r$n, hc$text[1], fixed = TRUE)
@@ -401,7 +584,20 @@ rule_table_statistics <- function(col, doc, arms) {
       hint <- stat_hint(label)
       cl <- clean_row_label(label)
       row_tp <- find_timepoint(label) %|NA|% tp
-      row_obs <- NULL
+      # one observation per effect column (an unadjusted and an adjusted
+      # ratio are two results); a p-value column joins the effect column on
+      # its left, or the only effect column of the table
+      col_obs <- list()
+      eff_cols <- which(vapply(roles, function(r) r$role == "effect", logical(1)))
+      obs_for <- function(j) {
+        if (roles[[j]]$role == "p") {
+          left <- eff_cols[eff_cols < j]
+          j <- if (length(left)) max(left) else if (length(eff_cols) == 1L) eff_cols else j
+        }
+        key <- as.character(j)
+        if (is.null(col_obs[[key]])) col_obs[[key]] <<- next_observation(col)
+        col_obs[[key]]
+      }
       for (k in seq_len(nrow(rc))) {
         cc <- rc[k, ]
         if (cc$col == 1L) next
@@ -409,8 +605,12 @@ rule_table_statistics <- function(col, doc, arms) {
         if (r$role == "label") next
         col_hint <- if (!is.na(hdr[cc$col])) stat_hint(hdr[cc$col]) else NA_character_
         h <- hint %|NA|% col_hint
-        base <- list(outcome = tolower(cl$outcome), unit = cl$unit, timepoint = row_tp, analysis_set = aset)
-        bind <- c("outcome=table_row_label", if (!is.na(row_tp)) "timepoint=table_caption_or_row", if (!is.na(aset)) "analysis_set=table_caption")
+        col_tp <- r$timepoint %||% NA_character_
+        cell_tp <- if (!is.na(col_tp)) col_tp else row_tp
+        base <- list(outcome = tolower(cl$outcome), unit = cl$unit, timepoint = cell_tp, analysis_set = aset)
+        bind <- c("outcome=table_row_label",
+                  if (!is.na(col_tp)) "timepoint=table_column_header" else if (!is.na(row_tp)) "timepoint=table_caption_or_row",
+                  if (!is.na(aset)) "analysis_set=table_caption")
         if (r$role == "arm") {
           base$arm <- r$arm
           bind <- c(bind, "arm=table_column_header")
@@ -429,13 +629,11 @@ rule_table_statistics <- function(col, doc, arms) {
         base$method <- paste0("rules:table_", r$role)
         stat_name <- switch(r$role, effect = "estimate", p = "p_value", "value")
         if (!nzchar(cc$text)) {
-          if (r$role %in% c("effect", "p")) {
+          if (r$role %in% c("effect", "p", "arm")) {
             do.call(add_record, c(list(col, field, NA_character_, statistic = stat_name, status = "not_reported",
                                        evidence_id = add_evidence(col, cell_id = cc$cell_id),
-                                       observation_id = {
-                                         if (is.null(row_obs)) row_obs <- next_observation(col)
-                                         row_obs
-                                       }, notes = "empty table cell"), base))
+                                       observation_id = if (r$role == "arm") next_observation(col) else obs_for(cc$col),
+                                       notes = "empty table cell"), base))
           }
           next
         }
@@ -449,10 +647,7 @@ rule_table_statistics <- function(col, doc, arms) {
         }
         pv <- parse_cell_value(cc$text, h, r$role)
         # the effect estimate and the p-value of one row form one observation
-        obs <- if (r$role %in% c("effect", "p")) {
-          if (is.null(row_obs)) row_obs <- next_observation(col)
-          row_obs
-        } else next_observation(col)
+        obs <- if (r$role %in% c("effect", "p")) obs_for(cc$col) else next_observation(col)
         if (is.null(pv)) {
           do.call(add_record, c(list(col, field, cc$text, statistic = "unparsed", status = "ambiguous",
                                      evidence_id = add_evidence(col, cell_id = cc$cell_id, char_start = 1L,

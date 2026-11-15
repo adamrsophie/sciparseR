@@ -48,11 +48,13 @@ number.
 outcome is reported at defined time points.
 \item \code{cross_source_conflict}: the same quantity (outcome, arm, comparison,
 measure, statistic, adjustment) reported with different values in
-text and tables. Different time points or analysis sets are never
-merged: they are compared only when one side leaves the context
+text and tables. Different arms, time points or analysis sets are
+never merged: they are compared only when one side leaves the context
 unbound, and such matches are reported as possible conflicts.
-\item \code{vocabulary} and \code{type}: categorical values belong to the field
-vocabulary; numeric fields parse as numbers.
+\item \code{vocabulary}, \code{type} and \code{multiplicity}: categorical values belong to
+the field's allowed values; numeric fields parse as numbers, integer
+fields hold whole numbers, logical fields true or false; a field that
+is not \code{multiple} has one value.
 }
 }
 \examples{

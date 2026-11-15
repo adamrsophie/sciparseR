@@ -59,6 +59,7 @@ Deep learning pipelines such as Docling, Marker and MinerU recognize
 layouts, complex tables and formulas that geometric methods cannot
 (tables without aligned columns, tables as images, LaTeX from formula
 images). For such documents, use them alongside sciparseR, or use the
-publisher's JATS when it exists. sciparseR's evaluation tools
-(`sc_evaluate()`) can score any parser that writes the same ground truth
-format.
+publisher's JATS when it exists. `sc_evaluate()` scores an
+`sc_document` against a ground truth file; the output of another parser
+can be scored after it is converted to an `sc_document` (GROBID TEI with
+`sc_read_grobid()`).

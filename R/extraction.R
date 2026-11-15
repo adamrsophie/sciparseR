@@ -101,7 +101,11 @@ new_extraction <- function(doc, schema, records, evidence, engine, llm = NULL) {
     schema_version = sc_schema_version,
     doc_id = doc$doc_id, sha256 = doc$source$sha256, source = doc$source$file_name,
     schema = list(name = schema$name, version = schema$version,
-                  fields = lapply(schema$fields, function(f) unclass(f)[c("name", "type", "required", "multiple", "description")])),
+                  fields = lapply(schema$fields, function(f) {
+                    c(unclass(f)[c("name", "type", "required", "multiple", "description")],
+                      list(values = names(f$vocabulary) %||% character(), pattern = f$pattern %||% NA_character_,
+                           sections = f$sections %||% character(), unit = f$unit %||% NA_character_))
+                  })),
     engine = engine, llm = llm, created_at = now_utc(),
     package_version = pkg_version("sciparseR"),
     records = as_entity(records, "records"), evidence = as_entity(evidence, "evidence"),
@@ -187,6 +191,11 @@ sc_observations <- function(x, wide = FALSE) {
   ctx <- c("observation_id", "field", "outcome", "arm", "comparator", "timepoint", "analysis_set",
            "effect_measure", "adjusted", "unit", "binding")
   ids <- unique(r$observation_id)
+  if (!length(ids)) {
+    out <- r[0, ctx, drop = FALSE]
+    out$status <- character()
+    return(out)
+  }
   rows <- lapply(ids, function(o) {
     ro <- r[r$observation_id == o, , drop = FALSE]
     base <- ro[1, ctx, drop = FALSE]
@@ -218,8 +227,8 @@ sc_extract_methods <- function(doc, ...) sc_extract(doc, "trial_details", ...)
 sc_extract_outcomes <- function(doc, ...) {
   s <- sc_schema("trial_details")
   s$fields <- s$fields[c("primary_outcome", "secondary_outcomes", "assessment_times", "follow_up")]
-  s$name <- "outcomes"
-  s$builtin <- TRUE
+  s$name <- rep("outcomes", nrow(s))
+  s$builtin <- rep(TRUE, nrow(s))
   sc_extract(doc, s, ...)
 }
 

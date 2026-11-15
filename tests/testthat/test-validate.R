@@ -29,8 +29,11 @@ test_that("exceptions need justifications and are recorded", {
 test_that("time points are never merged silently", {
   x <- sc_validate(sc_extract(sc_parse(fixture("contradictory.pdf"))))
   cf <- x$validation[x$validation$rule == "cross_source_conflict" & x$validation$result != "pass", ]
-  expect_true(all(cf$result == "possible_conflict" | grepl("12 months", cf$message) | TRUE))
-  expect_true(any(cf$result == "possible_conflict"))
+  # the text gives no time point, the table says 12 months: possible only
+  pc <- cf[cf$result == "possible_conflict", ]
+  expect_gt(nrow(pc), 0)
+  expect_true(all(grepl("unbound on one side", pc$message)))
+  expect_false(any(cf$result == "fail" & grepl("unbound", cf$message)))
 })
 
 test_that("human corrections supersede without deleting", {

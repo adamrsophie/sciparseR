@@ -60,17 +60,45 @@ sc_export_json <- function(x, file, include_path = FALSE, pretty = TRUE) {
 #' class(d2)
 #' @export
 sc_read_json <- function(file) {
-  obj <- jsonlite::fromJSON(file, simplifyDataFrame = TRUE, simplifyVector = TRUE, simplifyMatrix = FALSE)
+  check_string(file, "file")
+  if (!file.exists(file)) abort("File not found: ", file)
+  txt <- paste(readLines(file, encoding = "UTF-8", warn = FALSE), collapse = "\n")
+  if (!grepl("^\\s*\\{", txt)) abort("Not a sciparseR export: the file must hold a JSON object.")
+  obj <- tryCatch(jsonlite::fromJSON(txt, simplifyDataFrame = TRUE, simplifyVector = TRUE, simplifyMatrix = FALSE),
+                  error = function(e) abort("Not valid JSON: ", conditionMessage(e)))
   type <- obj$object_type
-  if (!type %in% c("sc_document", "sc_extraction")) abort("Not a sciparseR export.")
-  if (!identical(obj$schema_version, sc_schema_version)) {
-    warning("File schema version ", obj$schema_version, " differs from ", sc_schema_version, ".", call. = FALSE)
+  if (!is.character(type) || length(type) != 1L || !type %in% c("sc_document", "sc_extraction")) abort("Not a sciparseR export.")
+  ver <- obj$schema_version
+  if (!is.character(ver) || length(ver) != 1L) abort("The export has no schema version.")
+  if (!identical(sub("\\..*$", "", ver), sub("\\..*$", "", sc_schema_version))) {
+    abort("Schema version ", ver, " is not supported (this version reads ", sc_schema_version, ").")
+  }
+  if (!identical(ver, sc_schema_version)) {
+    warning("File schema version ", ver, " differs from ", sc_schema_version, ".", call. = FALSE)
+  }
+  id_ok <- function(v) is.character(v) && length(v) == 1L && grepl("^[A-Za-z0-9_.:-]+$", v)
+  if (!id_ok(obj$doc_id)) abort("The export has no valid `doc_id`.")
+  if (type == "sc_document") {
+    src <- obj$source
+    if (!is.list(src) || !is.character(src$sha256) || !grepl("^[0-9a-f]{64}$", src$sha256 %||% "") ||
+        !is.character(src$format) || !is.list(obj$processing)) {
+      abort("The export lacks the source and processing records of a document.")
+    }
+  } else if (!is.character(obj$sha256) || !is.list(obj$schema)) {
+    abort("The export lacks the source checksum or schema of an extraction.")
   }
   obj$object_type <- NULL
+  if (type == "sc_document") obj$metadata <- restore_metadata(obj$metadata)
   ents <- if (type == "sc_document") names(.entity_specs) else names(.extraction_specs)
   for (e in ents) {
     v <- obj[[e]]
     obj[[e]] <- if (is.null(v) || !length(v) || (is.list(v) && !is.data.frame(v))) empty_entity(e) else as_entity(v, e)
+    # identifiers become file names and keys: letters, digits and . _ : - only
+    for (idc in grep("_id$", names(obj[[e]]), value = TRUE)) {
+      iv <- obj[[e]][[idc]]
+      bad <- !is.na(iv) & !grepl("^[A-Za-z0-9_.:-]+$", iv)
+      if (any(bad)) abort("Invalid identifier in ", e, "$", idc, ": ", iv[bad][1])
+    }
   }
   structure(obj, class = type)
 }
@@ -104,7 +132,7 @@ sc_export_tables <- function(doc, dir) {
   dir.create(dir, showWarnings = FALSE, recursive = TRUE)
   files <- character()
   for (tid in doc$tables$table_id[!doc$tables$continuation_status %in% "joined"]) {
-    f <- file.path(dir, paste0(tid, ".csv"))
+    f <- file.path(dir, paste0(safe_file_name(tid), ".csv"))
     utils::write.csv(sc_table_to_dataframe(doc, tid), f, row.names = FALSE, fileEncoding = "UTF-8")
     files <- c(files, f)
   }
@@ -176,9 +204,10 @@ sc_export_markdown <- function(x, file) {
     } else if (bl$type %in% "equation") {
       eq <- doc$equations[doc$equations$block_id %in% bl$block_id, , drop = FALSE]
       tex <- if (nrow(eq) && !is.na(eq$latex[1])) eq$latex[1] else NA
-      out <- c(out, if (!is.na(tex)) c("$$", tex, "$$") else paste0("    ", bl$text), "")
+      if (!is.na(tex)) out <- c(out, "$$", tex, "$$", "")
+      else if (!is.na(bl$text) && nzchar(bl$text)) out <- c(out, paste0("    ", bl$text), "")
     } else if (bl$type %in% "caption") {
-      out <- c(out, paste0("*", md_escape(bl$text), "*"), "")
+      if (!is.na(bl$text) && nzchar(bl$text)) out <- c(out, paste0("*", md_escape(bl$text), "*"), "")
     } else if (bl$type %in% "reference") {
       next
     } else if (!is.na(bl$text) && nzchar(bl$text)) {
@@ -223,14 +252,20 @@ sc_export_jats <- function(x, file) {
       xml2::xml_add_child(ct, "string-name", a)
     }
   }
-  if (!is.na(md$abstract %||% NA)) {
+  # the abstract goes to the front matter once, never also into the body
+  sec_lab <- doc$sections$label[match(doc$blocks$section_id, doc$sections$section_id)]
+  in_abs <- sec_lab %in% "abstract" | grepl("/abstract", doc$blocks$xpath %|NA|% "")
+  abs_blocks <- doc$blocks[in_abs & doc$blocks$type %in% "paragraph", , drop = FALSE]
+  if (nrow(abs_blocks) || !is.na(md$abstract %||% NA)) {
     ab <- xml2::xml_add_child(am, "abstract")
-    xml2::xml_add_child(ab, "p", md$abstract)
+    if (nrow(abs_blocks)) for (t in abs_blocks$text[order(abs_blocks$reading_order)]) xml2::xml_add_child(ab, "p", t)
+    else xml2::xml_add_child(ab, "p", md$abstract)
   }
   body <- xml2::xml_add_child(root, "body")
-  secs <- doc$sections[doc$sections$label != "references" | is.na(doc$sections$label), , drop = FALSE]
+  secs <- doc$sections[!doc$sections$label %in% c("references", "abstract"), , drop = FALSE]
   node_of <- list()
-  b <- doc$blocks[order(doc$blocks$reading_order), , drop = FALSE]
+  b <- doc$blocks[!in_abs, , drop = FALSE]
+  b <- b[order(b$reading_order), , drop = FALSE]
   b <- b[!b$type %in% c("header", "footer", "title", "reference", "heading", "page_number"), , drop = FALSE]
   parent_node <- function(sid) {
     if (is.na(sid) || !sid %in% secs$section_id) return(body)
@@ -238,7 +273,7 @@ sc_export_jats <- function(x, file) {
     s <- secs[secs$section_id == sid, ]
     par <- parent_node(s$parent_id)
     n <- xml2::xml_add_child(par, "sec", id = sid)
-    xml2::xml_add_child(n, "title", s$title)
+    if (!is.na(s$title) && nzchar(s$title)) xml2::xml_add_child(n, "title", s$title)
     node_of[[sid]] <<- n
     n
   }
@@ -256,7 +291,7 @@ sc_export_jats <- function(x, file) {
       eq <- doc$equations[doc$equations$block_id %in% bl$block_id, , drop = FALSE]
       df <- xml2::xml_add_child(par, "disp-formula")
       if (nrow(eq) && !is.na(eq$label[1])) xml2::xml_add_child(df, "label", eq$label[1])
-      if (nrow(eq) && !is.na(eq$latex[1])) xml2::xml_add_child(df, "tex-math", eq$latex[1]) else xml2::xml_add_child(df, "alternatives", bl$text)
+      if (nrow(eq) && !is.na(eq$latex[1])) xml2::xml_add_child(df, "tex-math", eq$latex[1]) else if (!is.na(bl$text)) xml2::xml_text(df) <- bl$text
     } else if (bl$type %in% "caption") {
       next
     } else if (bl$type %in% "figure") {
@@ -265,13 +300,22 @@ sc_export_jats <- function(x, file) {
       if (nrow(f) && !is.na(f$label[1])) xml2::xml_add_child(fg, "label", f$label[1])
       cap <- doc$captions$text[match(f$caption_id[1], doc$captions$caption_id)]
       if (!is.na(cap %|NA|% NA)) xml2::xml_add_child(xml2::xml_add_child(fg, "caption"), "p", cap)
+      g <- if (nrow(f) && "graphic" %in% names(f)) f$graphic[1] else NA_character_
+      if (!is.na(g)) xml2::xml_add_child(fg, "graphic", "xlink:href" = g)
     } else if (!is.na(bl$text) && nzchar(bl$text)) {
-      xml2::xml_add_child(par, "p", bl$text)
+      add_jats_paragraph(par, bl, doc$citations)
     }
   }
   for (tid in setdiff(doc$tables$table_id[!doc$tables$continuation_status %in% "joined"], emitted)) add_jats_table(body, doc, tid)
+  if (nrow(doc$references) || nrow(doc$supplementary)) back <- xml2::xml_add_child(root, "back")
+  for (k in seq_len(nrow(doc$supplementary))) {
+    sm <- doc$supplementary[k, ]
+    sn <- xml2::xml_add_child(back, "supplementary-material", id = sm$supp_id)
+    if (!is.na(sm$href)) xml2::xml_set_attr(sn, "xlink:href", sm$href)
+    if (!is.na(sm$label)) xml2::xml_add_child(sn, "label", sm$label)
+    if (!is.na(sm$caption)) xml2::xml_add_child(xml2::xml_add_child(sn, "caption"), "p", sm$caption)
+  }
   if (nrow(doc$references)) {
-    back <- xml2::xml_add_child(root, "back")
     rl <- xml2::xml_add_child(back, "ref-list")
     for (k in seq_len(nrow(doc$references))) {
       r <- doc$references[k, ]
@@ -286,6 +330,30 @@ sc_export_jats <- function(x, file) {
   invisible(file)
 }
 
+# A paragraph with its citations as <xref> elements at their offsets.
+add_jats_paragraph <- function(parent, bl, citations) {
+  ci <- citations[citations$block_id %in% bl$block_id & !is.na(citations$char_start), , drop = FALSE]
+  ci <- ci[!duplicated(ci$char_start), , drop = FALSE]
+  ci <- ci[order(ci$char_start), , drop = FALSE]
+  if (!nrow(ci)) return(invisible(xml2::xml_add_child(parent, "p", bl$text)))
+  esc <- function(z) gsub(">", "&gt;", gsub("<", "&lt;", gsub("&", "&amp;", z, fixed = TRUE), fixed = TRUE), fixed = TRUE)
+  parts <- character()
+  pos <- 1L
+  for (k in seq_len(nrow(ci))) {
+    if (ci$char_start[k] < pos) next
+    rids <- citations$ref_id[citations$block_id %in% bl$block_id & citations$char_start %in% ci$char_start[k]]
+    rids <- rids[!is.na(rids)]
+    parts <- c(parts, esc(substr(bl$text, pos, ci$char_start[k] - 1L)),
+               sprintf('<xref ref-type="bibr"%s>%s</xref>',
+                       if (length(rids)) sprintf(' rid="%s"', paste(unique(rids), collapse = " ")) else "",
+                       esc(substr(bl$text, ci$char_start[k], ci$char_end[k]))))
+    pos <- ci$char_end[k] + 1L
+  }
+  parts <- c(parts, esc(substring(bl$text, pos)))
+  p <- xml2::read_xml(paste0("<p>", paste(parts, collapse = ""), "</p>"))
+  invisible(xml2::xml_add_child(parent, p))
+}
+
 add_jats_table <- function(parent, doc, tid) {
   tb <- doc$tables[doc$tables$table_id == tid, ]
   tw <- xml2::xml_add_child(parent, "table-wrap", id = tid)
@@ -296,6 +364,7 @@ add_jats_table <- function(parent, doc, tid) {
   cl <- doc$cells[doc$cells$table_id == tid, , drop = FALSE]
   cl <- cl[order(cl$row, cl$col), , drop = FALSE]
   covered <- character()
+  fn <- doc$footnotes[doc$footnotes$target_id %in% tid, , drop = FALSE]
   for (part in c("thead", "tbody")) {
     sub <- cl[cl$is_header == (part == "thead"), , drop = FALSE]
     if (!nrow(sub)) next
@@ -310,18 +379,46 @@ add_jats_table <- function(parent, doc, tid) {
         if (c1$col_span > 1L) attrs$colspan <- c1$col_span
         if (c1$row_span > 1L) attrs$rowspan <- c1$row_span
         td <- do.call(xml2::xml_add_child, c(list(tr, if (part == "thead") "th" else "td", c1$text), attrs))
-        if (!is.na(c1$markers)) for (mk in split_ids(c1$markers)) xml2::xml_add_child(td, "sup", mk)
+        # markers as footnote links, so a parser can tell them from the text
+        if (!is.na(c1$markers)) for (mk in split_ids(c1$markers)) {
+          rid <- fn$footnote_id[match(mk, fn$marker)]
+          xr <- xml2::xml_add_child(td, "xref", mk, "ref-type" = "table-fn")
+          if (!is.na(rid)) xml2::xml_set_attr(xr, "rid", rid)
+        }
       }
     }
   }
-  fn <- doc$footnotes[doc$footnotes$target_id %in% tid, , drop = FALSE]
   if (nrow(fn)) {
     fg <- xml2::xml_add_child(tw, "table-wrap-foot")
     for (k in seq_len(nrow(fn))) {
-      f <- xml2::xml_add_child(fg, "fn")
+      f <- xml2::xml_add_child(fg, "fn", id = fn$footnote_id[k])
       if (!is.na(fn$marker[k])) xml2::xml_add_child(f, "label", fn$marker[k])
       xml2::xml_add_child(f, "p", fn$text[k])
     }
   }
   invisible(tw)
+}
+
+# File name from an identifier: only letters, digits, "-", "_" and ".",
+# never a path, never hidden. Identifiers come from documents that may have
+# been read from untrusted JSON.
+safe_file_name <- function(x) {
+  x <- gsub("[^A-Za-z0-9_.-]", "_", x)
+  x <- sub("^[.]+", "_", x)
+  ifelse(nzchar(x), x, "_")
+}
+
+# JSON turns NA scalars into null and empty vectors into []: give every
+# metadata field back its R type.
+restore_metadata <- function(md) {
+  md <- if (is.list(md)) md else list()
+  chr <- function(v) if (is.null(v) || !length(v)) NA_character_ else as.character(unlist(v))[1]
+  vec <- function(v) if (is.null(v) || !length(v)) character() else as.character(unlist(v))
+  int <- function(v) if (is.null(v) || !length(v)) NA_integer_ else suppressWarnings(as.integer(unlist(v)[1]))
+  out <- md
+  for (k in intersect(c("title", "doi", "pmid", "pmcid", "journal", "abstract", "license", "license_text"), names(md))) out[[k]] <- chr(md[[k]])
+  for (k in intersect(c("authors", "keywords"), names(md))) out[[k]] <- vec(md[[k]])
+  for (k in intersect(c("year", "n_pages"), names(md))) out[[k]] <- int(md[[k]])
+  out$sources <- if (is.list(md$sources)) lapply(md$sources, chr) else list()
+  out
 }

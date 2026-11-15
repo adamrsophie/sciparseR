@@ -90,15 +90,30 @@ apply_ocr <- function(parts, path, cfg, log) {
   ob <- bind_entity(lapply(new_blocks, as.data.frame, stringsAsFactors = FALSE), "blocks")
   if (nrow(ob)) {
     if (cfg$ocr == "always") {
-      parts$blocks <- parts$blocks[!parts$blocks$page %in% todo, , drop = FALSE]
-      parts$spans <- parts$spans[!parts$spans$page %in% todo, , drop = FALSE]
+      # everything built from the replaced text layer goes: blocks, spans,
+      # lines, tables, cells, captions, figures and footnotes of those pages
+      done <- unique(ob$page)
+      for (e in setdiff(names(parts), "pages")) {
+        v <- parts[[e]]
+        if (is.data.frame(v) && "page" %in% names(v)) parts[[e]] <- v[!v$page %in% done, , drop = FALSE]
+      }
+      keep_tab <- parts$tables$table_id
+      if (is.data.frame(parts$cells) && "table_id" %in% names(parts$cells)) parts$cells <- parts$cells[parts$cells$table_id %in% keep_tab, , drop = FALSE]
+      if (is.data.frame(parts$captions) && nrow(parts$captions)) {
+        parts$captions <- parts$captions[parts$captions$block_id %in% parts$blocks$block_id, , drop = FALSE]
+      }
     }
     all <- rbind(as_entity(parts$blocks, "blocks"), ob)
     all$tmp_order <- ifelse(is.na(all$reading_order), Inf, all$reading_order)
     all <- all[order(all$page, all$tmp_order, all$y0), , drop = FALSE]
     all$reading_order <- seq_len(nrow(all))
     all$tmp_order <- NULL
-    parts$blocks <- all
+    # sections are rebuilt so that none points to a removed block and OCR
+    # paragraphs join the section of the heading before them; OCR pages
+    # get paragraphs only (no headings, tables or figures)
+    sec <- build_sections(all)
+    parts$blocks <- sec$blocks
+    parts$sections <- sec$sections
     parts$spans <- bind_entity(list(parts$spans, bind_entity(new_spans, "spans")), "spans")
   }
   pages$has_text_layer <- pages$has_text_layer

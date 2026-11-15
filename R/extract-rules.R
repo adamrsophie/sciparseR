@@ -5,24 +5,51 @@ design_sections <- c("title", "abstract", "methods", NA)
 rule_design <- function(col, units, fields) {
   u <- units[units$section_label %in% design_sections, , drop = FALSE]
   if ("study_design" %in% fields) {
+    # Each mention is classified by the words just before it: "this
+    # randomized trial", "we conducted a cohort study" describe the current
+    # study; "a previous meta-analysis", "informed by a systematic review"
+    # describe other work and never decide the design.
     found <- NULL
     for (i in seq_len(nrow(u))) {
       v <- match_vocab(u$text[i], design_vocabulary)
       if (!nrow(v)) next
-      v$block <- u$block_id[i]
-      found <- rbind(found, v)
+      ss <- split_sentences(u$text[i])
+      for (k in seq_len(nrow(v))) {
+        si <- max(which(ss$start <= v$start[k]))
+        before <- tolower(substr(u$text[i], ss$start[si], v$start[k] - 1L))
+        near <- substring(before, max(1L, nchar(before) - 60L))
+        last_at <- function(re) {
+          m <- gregexpr(re, near, perl = TRUE)[[1]]
+          if (m[1] > 0) max(m) else 0L
+        }
+        bg <- last_at("\\b(previous|prior|earlier|published|existing|other|recent|informed|based on|according to|et al)\\b|\\[[0-9]")
+        cu <- last_at("\\b(this|our|the present|the current|we (conducted|performed|designed|report|did|undertook)|was an?|is an?)\\b")
+        cls <- if (u$section_label[i] %in% "title" || cu > bg) "current" else if (bg > 0L) "background" else "neutral"
+        found <- rbind(found, data.frame(v[k, ], block = u$block_id[i], cls = cls, stringsAsFactors = FALSE))
+      }
     }
     if (!is.null(found)) {
       prio <- names(design_vocabulary)
-      found <- found[order(match(found$term, prio)), , drop = FALSE]
+      tier <- match(found$cls, c("current", "neutral", "background"))
+      found <- found[order(tier, match(found$term, prio)), , drop = FALSE]
       best <- found[1, ]
+      same_tier <- unique(found$term[found$cls == best$cls])
       others <- setdiff(unique(found$term), best$term)
+      status <- "reported"
+      note <- if (length(others)) paste("also mentioned:", paste(others, collapse = ", ")) else NA_character_
+      if (best$cls == "background") {
+        status <- "ambiguous"
+        note <- "design terms are mentioned only for other studies"
+      } else if (length(same_tier) > 1L) {
+        status <- "ambiguous"
+        note <- paste("competing design statements:", paste(same_tier, collapse = ", "))
+      }
       txt <- u$text[match(best$block, u$block_id)]
       ev <- add_evidence(col, block_id = best$block, char_start = best$start,
                          char_end = best$start + best$length - 1L,
                          value_text = substr(txt, best$start, best$start + best$length - 1L))
-      add_record(col, "study_design", best$term, evidence_id = ev, method = "rules:design_vocabulary",
-                 notes = if (length(others)) paste("also mentioned:", paste(others, collapse = ", ")) else NA_character_)
+      add_record(col, "study_design", best$term, status = status, evidence_id = ev,
+                 method = "rules:design_vocabulary", notes = note)
     }
   }
   if ("design_features" %in% fields) {
@@ -94,8 +121,14 @@ rule_methods <- function(col, units, fields) {
       }
       # randomized sample size
       if ("randomized_n" %in% fields) {
-        m <- regexpr("(?i)(?:total of |^|\\b)([0-9][0-9,]*) (?:[a-z-]+ ){0,3}(?:were |was )?(?:randomly (?:assigned|allocated)|randomi[sz]ed|underwent randomi[sz]ation)", st, perl = TRUE)
-        if (m < 0) m <- regexpr("(?i)\\bof the ([0-9][0-9,]*) randomi[sz]ed\\b", st, perl = TRUE)
+        # a participant noun is required next to the number, so years
+        # ("Between 2015 and 2017, patients were randomized"), durations and
+        # site counts are never read as the sample size
+        who <- "(?:patients|participants|subjects|women|men|adults|children|infants|neonates|people|persons|individuals|volunteers|students|residents|pregnancies)"
+        m <- regexpr(paste0("(?i)(?:total of |^|\\b)([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+) (?:[a-z-]+ ){0,2}", who,
+                            "\\b(?: [a-z-]+){0,3} (?:were |was )?(?:randomly (?:assigned|allocated)|randomi[sz]ed|underwent randomi[sz]ation)"), st, perl = TRUE)
+        if (m < 0) m <- regexpr(paste0("(?i)\\b(?:randomly (?:assigned|allocated)|randomi[sz]ed) (?:a total of )?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+) (?:[a-z-]+ ){0,2}", who, "\\b"), st, perl = TRUE)
+        if (m < 0) m <- regexpr("(?i)\\bof the ([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+) randomi[sz]ed\\b", st, perl = TRUE)
         if (m > 0) {
           cs <- attr(m, "capture.start")[1]
           cl <- attr(m, "capture.length")[1]

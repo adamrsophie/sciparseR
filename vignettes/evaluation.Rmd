@@ -67,10 +67,11 @@ attr(e, "tables")
 
 Perfect scores on the fixtures show that each component works on the case
 it was built for. They do not show performance on real articles, whose
-layouts are far more varied. The benchmark plan of the project describes
-the evaluation on real open access articles with JATS as the reference
-(the JATS version gives sections, tables and references to compare the
-PDF parse against) and the comparison with GROBID, Docling and Marker.
+layouts are far more varied. A benchmark on real open access articles,
+with their JATS version as the reference, and a comparison with GROBID,
+Docling and Marker are planned for a later version. `sc_evaluate()` does
+not yet compute a character error rate, IoU based table detection, GriTS
+or TEDS, or extraction accuracy.
 
 ## Evaluating your own documents
 

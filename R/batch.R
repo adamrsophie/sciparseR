@@ -34,8 +34,14 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
       if (!file.exists(p)) stop("file not found")
       key <- cache_key(p, config)
       cf <- if (!is.null(cache_dir)) file.path(cache_dir, paste0(key, ".rds")) else NULL
-      if (!is.null(cf) && file.exists(cf)) {
-        list(doc = readRDS(cf), cached = TRUE, error = NA_character_)
+      # an unreadable cache entry is parsed again and replaced
+      d <- if (!is.null(cf) && file.exists(cf)) tryCatch(readRDS(cf), error = function(e) NULL) else NULL
+      if (!inherits(d, "sc_document")) d <- NULL
+      if (!is.null(d)) {
+        # identical bytes may live at another path: point to this file
+        d$source$path <- normalizePath(p, mustWork = TRUE)
+        d$source$file_name <- basename(p)
+        list(doc = d, cached = TRUE, error = NA_character_)
       } else {
         d <- sc_parse(p, config = config)
         if (!is.null(cf)) {
@@ -52,9 +58,9 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
   }
   res <- if (workers > 1L && .Platform$OS.type == "unix") parallel::mclapply(paths, one, mc.cores = workers) else lapply(paths, one)
   docs <- lapply(res, `[[`, "doc")
-  names(docs) <- basename(paths)
+  names(docs) <- make.unique(basename(paths), sep = "_")
   status <- data.frame(
-    file = basename(paths),
+    file = names(docs),
     status = vapply(res, function(r) if (is.null(r$doc)) "failed" else "ok", ""),
     cached = vapply(res, `[[`, logical(1), "cached"),
     seconds = round(vapply(res, `[[`, numeric(1), "seconds"), 3),
@@ -75,8 +81,11 @@ print.sc_batch <- function(x, ...) {
 }
 
 cache_key <- function(path, config) {
+  # every backend whose version can change the parse is part of the key
+  ocr <- !identical(config$ocr, "never") && is_installed("tesseract")
   substr(hash_object(list(sha256_file(path), config_hash(config), pkg_version("sciparseR"),
-                          sc_schema_version, pkg_version("pdftools"))), 1L, 32L)
+                          sc_schema_version, pkg_version("pdftools"), pkg_version("xml2"),
+                          if (ocr) pkg_version("tesseract") else NA_character_)), 1L, 32L)
 }
 
 #' Inspect or clear a parse cache

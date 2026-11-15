@@ -37,9 +37,11 @@ doc <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"
 doc
 #> <sc_document> doc-acfa0be8d4838c2d
 #>   source:   trial_tables.pdf (pdf, sha256 acfa0be8d483...)
+#>   title:    Drug A Versus Placebo in Hypertension: a Randomized Controlled Trial
 #>   pages:    1
-#>   blocks:   17   sections: 2   tables: 2   figures: 0
-#>   ...
+#>   blocks:   11   sections: 2   tables: 2   figures: 0
+#>   equations: 0   references: 0   citations: 0
+#>   parser:   pdftools 3.9.1, sciparseR 0.1.0, schema 1.0.0
 
 sc_sections(doc)[, c("level", "title", "label")]
 sc_table_to_dataframe(doc, "Table 2")
@@ -85,9 +87,11 @@ sc_llm_providers()                                                # everything e
 y <- sc_extract(doc, "pico", engine = "llm", llm = eng)
 ```
 
-Only text passages are sent. Each answer must quote the passage it came
-from; values whose quote cannot be found in the cited block are kept with
-status `unsupported`.
+Only text passages and tables (as "row | column: value" lines) are sent.
+Each answer must quote the passage it came from. A value whose quote is
+not in the cited block, whose number is not in the quote, or whose
+category is not stated there is kept with status `unsupported`; context
+(arm, outcome, time point) not found in the passage makes it `ambiguous`.
 
 ## Export
 
@@ -103,7 +107,9 @@ sc_export_evidence(x, "evidence.csv")
 
 sciparseR does not reconstruct LaTeX from PDF text, digitize figures or
 Kaplan-Meier curves, or run learned layout and table models in this
-version. When a value cannot be recovered with certainty it says so in
+version (the ONNX registry verifies and loads models, but no parser step
+uses them yet). PDF tables get column spans only; OCR pages get
+paragraphs only; a page rotated by 180 degrees is not detected; the population of a result is not bound. When a value cannot be recovered with certainty it says so in
 the status column instead of guessing. See the
 [articles](https://adamrsophie.github.io/sciparseR/articles/) for the
 document model, tables, extraction, validation, language models, OCR

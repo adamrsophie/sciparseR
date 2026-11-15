@@ -8,14 +8,17 @@ xtext <- function(node, xpath = NULL) {
   if (!nzchar(t)) NA_character_ else t
 }
 
-# Text of a node without formula markup duplicates (TeX and MathML both
-# present) and with table footnote markers removed when requested.
+# Text of a node with one representation of each formula: the MathML
+# text when MathML is present, otherwise the TeX source; table footnote
+# markers are removed when requested.
 node_text <- function(node, drop_fn_markers = FALSE) {
-  q <- ".//text()[not(ancestor::*[local-name()='math']) and not(ancestor::tex-math)"
+  normalize_text(paste(xml2::xml_text(text_nodes(node, drop_fn_markers)), collapse = ""))
+}
+
+text_nodes <- function(node, drop_fn_markers = FALSE) {
+  q <- ".//text()[not(ancestor::tex-math[parent::*/*[local-name()='math']])"
   if (drop_fn_markers) q <- paste0(q, " and not(ancestor::xref[@ref-type='table-fn' or @ref-type='fn'])")
-  q <- paste0(q, "]")
-  tn <- xml2::xml_find_all(node, q)
-  normalize_text(paste(xml2::xml_text(tn), collapse = ""))
+  xml2::xml_find_all(node, paste0(q, "]"))
 }
 
 jats_root <- function(x) {
@@ -26,8 +29,21 @@ jats_root <- function(x) {
 }
 
 parse_jats <- function(path, cfg, log) {
-  x <- tryCatch(xml2::read_xml(path, options = c("NOBLANKS", "NONET")),
-                error = function(e) abort("Cannot read XML: ", conditionMessage(e)))
+  raw <- paste(readLines(path, warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  ex <- expand_entities(raw)
+  # unchanged files are read from disk so their declared encoding is used
+  txt <- if (identical(ex$text, raw)) path else ex$text
+  undefined <- ex$unknown
+  x <- withCallingHandlers(
+    tryCatch(xml2::read_xml(txt, options = c("NOBLANKS", "NONET")),
+             error = function(e) abort("Cannot read XML: ", conditionMessage(e))),
+    warning = function(w) {
+      undefined <<- c(undefined, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+  # an entity the parser cannot resolve disappears from the text, which can
+  # drop a minus sign: say so in the document warnings
+  for (u in unique(undefined)) log$add("parse", "xml_entity", paste0("Unknown XML entity replaced by U+FFFD: ", trimws(u)))
   x <- xml2::xml_ns_strip(x)
   art <- jats_root(x)
   meta <- jats_metadata(art)
@@ -74,6 +90,9 @@ parse_jats <- function(path, cfg, log) {
   q <- paste(".//sec", ".//p[not(ancestor::caption) and not(ancestor::table-wrap-foot) and not(ancestor::fn) and not(ancestor::table) and not(ancestor::supplementary-material)]",
              ".//table-wrap", ".//fig", ".//disp-formula", ".//supplementary-material", sep = " | ")
   nodes <- if (inherits(body, "xml_missing")) list() else xml2::xml_find_all(body, q)
+  # supplementary material listed in the back matter
+  back_supp <- xml2::xml_find_all(art, "./back//supplementary-material")
+  if (length(back_supp)) nodes <- c(as.list(nodes), as.list(back_supp))
   sec_ids <- character()
   sec_paths <- character()
   owner_section <- function(node) {
@@ -128,11 +147,14 @@ parse_jats <- function(path, cfg, log) {
       sid <- owner_section(node)
       lab <- xtext(node, "./label")
       ctext <- xtext(node, "./caption")
-      cid <- sprintf("cap-%03d", length(captions) + 1L)
-      bid <- add_block("caption", normalize_text(paste(c(lab, ctext)[!is.na(c(lab, ctext))], collapse = ". ")), node, sid)
-      captions[[length(captions) + 1L]] <- list(caption_id = cid, target_type = "figure", target_id = fid,
-                                                label = lab, text = ctext, block_id = bid,
-                                                xpath = xml2::xml_path(node))
+      cid <- NA_character_
+      if (!is.na(lab) || !is.na(ctext)) {
+        cid <- sprintf("cap-%03d", length(captions) + 1L)
+        bid <- add_block("caption", normalize_text(paste(c(lab, ctext)[!is.na(c(lab, ctext))], collapse = ". ")), node, sid)
+        captions[[length(captions) + 1L]] <- list(caption_id = cid, target_type = "figure", target_id = fid,
+                                                  label = lab, text = ctext, block_id = bid,
+                                                  xpath = xml2::xml_path(node))
+      }
       g <- xml2::xml_find_first(node, ".//graphic")
       figures[[length(figures) + 1L]] <- list(
         figure_id = fid, label = lab, caption_id = cid, method = "jats_markup",
@@ -146,7 +168,7 @@ parse_jats <- function(path, cfg, log) {
       mm <- xml2::xml_find_first(node, ".//*[local-name()='math']")
       mtxt <- if (inherits(mm, "xml_missing")) NA_character_ else normalize_text(xml2::xml_text(mm))
       inline_p <- length(xml2::xml_find_all(node, "ancestor::p")) > 0L
-      bid <- if (inline_p) NA_character_ else add_block("equation", mtxt %||% tex, node, owner_section(node))
+      bid <- if (inline_p) NA_character_ else add_block("equation", if (!is.na(mtxt)) mtxt else tex, node, owner_section(node))
       equations[[length(equations) + 1L]] <- list(
         equation_id = eid, label = xtext(node, "./label"), text = if (!is.na(mtxt)) mtxt else tex,
         latex = tex, mathml = if (inherits(mm, "xml_missing")) NA_character_ else as.character(mm),
@@ -174,7 +196,7 @@ parse_jats <- function(path, cfg, log) {
     figures = bind_entity(lapply(figures, as.data.frame, stringsAsFactors = FALSE), "figures"),
     equations = bind_entity(lapply(equations, as.data.frame, stringsAsFactors = FALSE), "equations"),
     captions = bind_entity(lapply(captions, as.data.frame, stringsAsFactors = FALSE), "captions"),
-    footnotes = bind_entity(footnotes, "footnotes"),
+    footnotes = bind_entity(c(footnotes, list(jats_document_footnotes(art))), "footnotes"),
     references = references, citations = citations,
     supplementary = bind_entity(lapply(supp, as.data.frame, stringsAsFactors = FALSE), "supplementary"),
     metadata = meta)
@@ -251,9 +273,23 @@ jats_table <- function(node, k, log) {
   occ <- list()
   out <- list()
   n_header <- 0L
+  has_thead <- length(xml2::xml_find_all(node, ".//thead")) > 0L
+  # Without <thead>, leading rows made only of column headers (<th> without
+  # scope="row") are the header. A <th scope="row"> is a row label, which
+  # stays a data cell so that its row keeps its values.
+  col_header <- function(cell) {
+    xml2::xml_name(cell) == "th" && !xml2::xml_attr(cell, "scope") %in% c("row", "rowgroup")
+  }
+  lead <- TRUE
   for (r in seq_along(rows)) {
     tr <- rows[[r]]
-    in_head <- length(xml2::xml_find_all(tr, "ancestor::thead")) > 0L
+    tcs <- xml2::xml_find_all(tr, "./th|./td")
+    in_head <- if (has_thead) {
+      length(xml2::xml_find_all(tr, "ancestor::thead")) > 0L
+    } else {
+      lead <- lead && length(tcs) > 0L && all(vapply(tcs, col_header, logical(1)))
+      lead
+    }
     if (in_head) n_header <- r
     col <- 1L
     for (cell in xml2::xml_find_all(tr, "./th|./td")) {
@@ -267,7 +303,7 @@ jats_table <- function(node, k, log) {
       txt <- node_text(cell, drop_fn_markers = TRUE)
       out[[length(out) + 1L]] <- list(
         cell_id = sprintf("%s-r%03dc%03d", tid, r, col), table_id = tid, row = r, col = col,
-        row_span = rs, col_span = cs, is_header = in_head || xml2::xml_name(cell) == "th",
+        row_span = rs, col_span = cs, is_header = in_head,
         text_raw = normalize_text(xml2::xml_text(cell)), text = txt,
         markers = collapse_ids(normalize_text(xml2::xml_text(mk))),
         missing_token = grepl(missing_token_regex, txt),
@@ -275,6 +311,11 @@ jats_table <- function(node, k, log) {
         xpath = xml2::xml_path(cell))
       col <- col + cs
     }
+  }
+  if (!length(occ)) {
+    table$status <- "empty"
+    log$add("jats", "table_without_cells", paste0("Table ", lab %||% tid, " has rows but no cells."), NA, tid)
+    return(list(table = table, cells = empty_entity("cells"), footnotes = fns))
   }
   cells <- bind_entity(lapply(out, as.data.frame, stringsAsFactors = FALSE), "cells")
   keys <- do.call(rbind, strsplit(names(occ), " "))
@@ -327,11 +368,11 @@ jats_references <- function(art) {
                label = xtext(r, "./label"), text = txt,
                authors = au,
                title = xtext(cit, ".//article-title|.//chapter-title") %|NA|% h$title,
-               journal = xtext(cit, ".//source"),
-               year = suppressWarnings(as.integer(sub("[^0-9].*$", "", xtext(cit, ".//year") %||% NA))),
-               volume = xtext(cit, ".//volume"),
-               pages = if (!is.na(fp)) paste(c(fp, lp)[!is.na(c(fp, lp))], collapse = "-") else el,
-               doi = pid("doi"), pmid = pid("pmid"), pmcid = pm,
+               journal = xtext(cit, ".//source") %|NA|% h$journal,
+               year = suppressWarnings(as.integer(sub("[^0-9].*$", "", xtext(cit, ".//year") %||% NA))) %|NA|% h$year,
+               volume = xtext(cit, ".//volume") %|NA|% h$volume,
+               pages = (if (!is.na(fp)) paste(c(fp, lp)[!is.na(c(fp, lp))], collapse = "-") else el) %|NA|% h$pages,
+               doi = pid("doi") %|NA|% h$doi, pmid = pid("pmid") %|NA|% h$pmid, pmcid = pm %|NA|% h$pmcid,
                method = method, xpath = xml2::xml_path(r), stringsAsFactors = FALSE)
   })
   out <- bind_entity(rows, "references")
@@ -352,6 +393,19 @@ jats_citations <- function(art, blocks, references) {
     mk <- normalize_text(xml2::xml_text(x))
     st <- NA_integer_
     if (!is.na(bi) && nzchar(mk)) {
+      # offset from the text that precedes this xref in the paragraph, so a
+      # number that also occurs earlier in the text is never picked
+      tn <- text_nodes(p)
+      inside <- vapply(tn, function(t) length(xml2::xml_find_all(t, "ancestor::xref")) > 0L &&
+                         identical(xml2::xml_path(xml2::xml_find_first(t, "ancestor::xref[1]")), xml2::xml_path(x)), logical(1))
+      if (any(inside)) {
+        k <- which(inside)[1]
+        pre <- paste(c(xml2::xml_text(tn[seq_len(k - 1L)]), xml2::xml_text(tn[inside])), collapse = "")
+        cand <- nchar(normalize_text(pre)) - nchar(mk) + 1L
+        if (cand >= 1L && identical(substr(blocks$text[bi], cand, cand + nchar(mk) - 1L), mk)) st <- cand
+      }
+    }
+    if (is.na(st) && !is.na(bi) && nzchar(mk)) {
       from <- cursor[[bid]] %||% 1L
       sub_txt <- substring(blocks$text[bi], from)
       pos <- regexpr(mk, sub_txt, fixed = TRUE)
@@ -415,6 +469,8 @@ sc_fetch_pmc <- function(pmcid, dest, allow_network = FALSE,
   if (!isTRUE(allow_network)) {
     abort("Network access is opt-in. Set `allow_network = TRUE` to contact NCBI.")
   }
+  check_string(dest, "dest")
+  if (dir.exists(dest)) abort("`dest` is a directory; give the path of the XML file to write.")
   pmcid <- toupper(pmcid)
   if (!grepl("^PMC[0-9]+$", pmcid)) abort("`pmcid` must look like 'PMC1234567'.")
   oa_url <- paste0("https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=", pmcid)
@@ -427,10 +483,20 @@ sc_fetch_pmc <- function(pmcid, dest, allow_network = FALSE,
   }
   q <- paste0("db=pmc&id=", sub("^PMC", "", pmcid), "&tool=sciparseR")
   if (!is.null(email)) q <- paste0(q, "&email=", utils::URLencode(email, reserved = TRUE))
-  if (!is.null(api_key)) q <- paste0(q, "&api_key=", api_key)
+  if (!is.null(api_key)) q <- paste0(q, "&api_key=", utils::URLencode(api_key, reserved = TRUE))
   url <- paste0("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?", q)
-  status <- utils::download.file(url, dest, quiet = TRUE, mode = "wb")
+  # download to a temporary file and keep it only if it is a JATS article
+  tmp <- tempfile(fileext = ".xml")
+  on.exit(unlink(tmp), add = TRUE)
+  status <- tryCatch(utils::download.file(url, tmp, quiet = TRUE, mode = "wb"),
+                     error = function(e) abort("E-utilities download failed: ", conditionMessage(e)))
   if (status != 0L) abort("E-utilities download failed with status ", status, ".")
+  ok <- tryCatch({
+    x <- xml2::xml_ns_strip(xml2::read_xml(tmp, options = c("NOBLANKS", "NONET")))
+    !inherits(xml2::xml_find_first(x, "//article"), "xml_missing")
+  }, error = function(e) FALSE)
+  if (!ok) abort("NCBI did not return a JATS article for ", pmcid, ".")
+  if (!file.copy(tmp, dest, overwrite = TRUE)) abort("Could not write ", dest, ".")
   structure(dest, license = oa$license, pmcid = pmcid, class = "character") |> invisible()
 }
 
@@ -447,4 +513,51 @@ parse_oa_response <- function(xml_string) {
   }
   list(open_access = TRUE, license = xml2::xml_attr(rec, "license"),
        message = "open access")
+}
+
+# Footnotes outside tables (body and back matter <fn>), scope "document".
+jats_document_footnotes <- function(art) {
+  fn <- xml2::xml_find_all(art, "./body//fn[not(ancestor::table-wrap)] | ./back//fn[not(ancestor::table-wrap)]")
+  if (!length(fn)) return(empty_entity("footnotes"))
+  bind_entity(lapply(seq_along(fn), function(i) {
+    f <- fn[[i]]
+    data.frame(footnote_id = sprintf("fn-%03d", i), scope = "document",
+               target_id = xml2::xml_attr(f, "id"), marker = xtext(f, "./label"),
+               text = normalize_text(paste(xml2::xml_text(xml2::xml_find_all(f, "./*[not(self::label)]|./text()")), collapse = " ")),
+               xpath = xml2::xml_path(f), stringsAsFactors = FALSE)
+  }), "footnotes")
+}
+
+# Named entities that publishers use with an external DTD (which is never
+# loaded) and simple entities declared in the internal subset are replaced by
+# their characters before parsing, so a "&minus;7.2" keeps its sign.
+html_entities <- c(
+  minus = "\u2212", plusmn = "\u00b1", times = "\u00d7", le = "\u2264", ge = "\u2265",
+  lt = NA, gt = NA, amp = NA, quot = NA, apos = NA,
+  ndash = "\u2013", mdash = "\u2014", nbsp = "\u00a0", thinsp = "\u2009", middot = "\u00b7",
+  deg = "\u00b0", micro = "\u00b5", alpha = "\u03b1", beta = "\u03b2", gamma = "\u03b3",
+  delta = "\u03b4", Delta = "\u0394", kappa = "\u03ba", lambda = "\u03bb", mu = "\u03bc",
+  sigma = "\u03c3", chi = "\u03c7", tau = "\u03c4", rho = "\u03c1", ne = "\u2260",
+  asymp = "\u2248", approx = "\u2248", hellip = "\u2026", lsquo = "\u2018", rsquo = "\u2019",
+  ldquo = "\u201c", rdquo = "\u201d", dagger = "\u2020", Dagger = "\u2021", sect = "\u00a7",
+  para = "\u00b6", infin = "\u221e", rarr = "\u2192", larr = "\u2190")
+
+expand_entities <- function(txt) {
+  ents <- html_entities[!is.na(html_entities)]
+  decl <- regmatches(txt, gregexpr("<!ENTITY\\s+([A-Za-z][A-Za-z0-9._-]*)\\s+\"([^\"&<%]*)\"\\s*>", txt, perl = TRUE))[[1]]
+  if (length(decl)) {
+    nm <- sub("<!ENTITY\\s+([A-Za-z][A-Za-z0-9._-]*).*", "\\1", decl, perl = TRUE)
+    val <- sub(".*\"([^\"]*)\".*", "\\1", decl, perl = TRUE)
+    ents[nm] <- val
+  }
+  for (nm in names(ents)) {
+    rep <- if (nchar(ents[[nm]]) == 1L) sprintf("&#%d;", utf8ToInt(ents[[nm]])) else
+      paste(sprintf("&#%d;", utf8ToInt(ents[[nm]])), collapse = "")
+    txt <- gsub(paste0("&", nm, ";"), rep, txt, fixed = TRUE)
+  }
+  # any other named entity is unknown: mark it visibly instead of failing
+  # or silently dropping it
+  unk <- regmatches(txt, gregexpr("&(?!(?:lt|gt|amp|quot|apos);)[A-Za-z][A-Za-z0-9._-]*;", txt, perl = TRUE))[[1]]
+  if (length(unk)) txt <- gsub("&(?!(?:lt|gt|amp|quot|apos);)[A-Za-z][A-Za-z0-9._-]*;", "&#65533;", txt, perl = TRUE)
+  list(text = txt, unknown = unique(unk))
 }

@@ -11,7 +11,7 @@ Description: Turns scientific PDF documents and 'JATS' XML into a
     recursive XY-cut with column detection, repeated header and footer
     detection, conservative hyphenation repair), sections, captions,
     footnotes, equations, figures, references and in-text citations.
-    Tables are reconstructed as cells with row and column spans, header
+    Tables are reconstructed as cells with spans, header
     levels, missing value markers and source boxes. 'JATS' XML is a first
     class source whose semantic structure is preserved. A schema-driven
     extraction layer with a deterministic rules engine and an optional

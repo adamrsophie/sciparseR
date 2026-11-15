@@ -16,11 +16,17 @@ library(sciparseR)
 The rules engine is precise but narrow. A language model reads more
 varied writing, but it can also produce values that are not in the
 paper. sciparseR uses language models in a way that keeps the second
-problem visible: the model must quote its source, and every quote is
-checked against the document before a value is accepted.
+problem visible: the model must quote its source, and the quote is
+checked against the document before a value is accepted: the quote must
+be in the cited passage (or be a cell of the cited table), a number must
+appear in the quote as a whole number, a category must be stated there,
+and arm, outcome and time point must appear in the passage. An answer
+that is not valid JSON skips its chunk with a warning and is logged in
+`x$llm$calls$error`; the other chunks are kept.
 
 Nothing is sent anywhere unless you create an engine and pass it to
-`sc_extract()`. Only block text is sent, never the PDF file.
+`sc_extract()`. Only block text and table cells are sent, never the PDF
+file.
 
 ## Providers
 

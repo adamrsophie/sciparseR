@@ -94,8 +94,10 @@ cont
 
 ## Rotated pages
 
-Pages with a `/Rotate` entry are detected and their words are mapped to
-the upright page:
+Pages rotated by 90 or 270 degrees are detected (the displayed page
+swaps width and height) and their words are mapped to the upright page.
+A rotation by 180 degrees cannot be told from no rotation this way; such
+pages are reported with `rotation = 0` and `rotation_status = "assumed_0"`:
 
 ```{r}
 rot <- sc_parse(ex("rotated.pdf"))

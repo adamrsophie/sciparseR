@@ -73,7 +73,8 @@ sc_table_to_matrix <- function(doc, table, fill_spans = FALSE, join_continuation
     cl <- doc$cells[doc$cells$table_id == ids[k], , drop = FALSE]
     if (k > 1L) cl <- cl[!cl$is_header, , drop = FALSE]
     if (!nrow(cl)) return(NULL)
-    rr <- sort(unique(cl$row))
+    # every row a cell covers, so rows held only by row spans are kept
+    rr <- sort(unique(unlist(mapply(function(r, n) r:(r + n - 1L), cl$row, pmax(1L, cl$row_span), SIMPLIFY = FALSE))))
     m <- matrix("", length(rr), max(cl$col + cl$col_span - 1L))
     for (i in seq_len(nrow(cl))) {
       r <- match(cl$row[i], rr)
@@ -203,8 +204,7 @@ sc_figure_crop <- function(doc, id, file, dpi = 150, padding = 4) {
   check_document(doc)
   if (doc$source$format != "pdf") abort("Cropping needs a PDF document.")
   if (!is_installed("png")) abort("The png package is needed to write PNG files.")
-  if (!file.exists(doc$source$path)) abort("The source PDF is no longer at ", doc$source$file_name, ".")
-  if (!identical(sha256_file(doc$source$path), doc$source$sha256)) abort("The source PDF has changed since parsing (checksum differs).")
+  check_source_pdf(doc)
   loc <- sc_source(doc, id)
   if (is.na(loc$x0[1])) abort("Element ", id, " has no bounding box.")
   pg <- doc$pages[doc$pages$page == loc$page[1], ]
@@ -249,6 +249,10 @@ sc_highlight <- function(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d") 
   check_document(doc)
   if (doc$source$format != "pdf") abort("Highlighting needs a PDF document.")
   if (!is_installed("png")) abort("The png package is needed to read and write PNG files.")
+  check_source_pdf(doc)
+  if (inherits(x, "sc_extraction") && !identical(x$doc_id %||% doc$doc_id, doc$doc_id)) {
+    abort("The extraction was made from a different document.")
+  }
   loc <- if (inherits(x, "sc_extraction")) x$evidence else if (is.data.frame(x)) x else sc_source(doc, x)
   loc <- loc[!is.na(loc$page) & !is.na(loc$x0), , drop = FALSE]
   if (!nrow(loc)) abort("No evidence with a bounding box to highlight.")
@@ -259,18 +263,32 @@ sc_highlight <- function(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d") 
     bm <- pdftools::pdf_render_page(doc$source$path, page = p, dpi = dpi, numeric = TRUE)
     h <- dim(bm)[1]
     w <- dim(bm)[2]
-    f <- file.path(dir, sprintf("%s-page-%03d.png", doc$doc_id, p))
-    grDevices::png(f, width = w, height = h)
-    op <- graphics::par(mar = c(0, 0, 0, 0))
-    graphics::plot.new()
-    graphics::plot.window(c(0, w), c(h, 0), xaxs = "i", yaxs = "i")
-    graphics::rasterImage(bm, 0, h, w, 0)
+    f <- file.path(dir, sprintf("%s-page-%03d.png", safe_file_name(doc$doc_id), p))
     lp <- loc[loc$page == p, , drop = FALSE]
-    graphics::rect(lp$x0 * w / pg$width, lp$y0 * h / pg$height, lp$x1 * w / pg$width, lp$y1 * h / pg$height,
-                   border = color, lwd = 2)
-    graphics::par(op)
-    grDevices::dev.off()
+    local({
+      grDevices::png(f, width = w, height = h)
+      dev <- grDevices::dev.cur()
+      on.exit(grDevices::dev.off(dev))
+      graphics::par(mar = c(0, 0, 0, 0))
+      graphics::plot.new()
+      graphics::plot.window(c(0, w), c(h, 0), xaxs = "i", yaxs = "i")
+      graphics::rasterImage(bm, 0, h, w, 0)
+      graphics::rect(lp$x0 * w / pg$width, lp$y0 * h / pg$height, lp$x1 * w / pg$width, lp$y1 * h / pg$height,
+                     border = color, lwd = 2)
+    })
     files <- c(files, f)
   }
   invisible(files)
+}
+
+# The source PDF must be at the recorded path with the recorded checksum.
+check_source_pdf <- function(doc) {
+  p <- doc$source$path
+  if (is.null(p) || !length(p) || is.na(p[1]) || !nzchar(p[1])) {
+    abort("The document has no source path (JSON exports leave it out by default). ",
+          "Set `doc$source$path` to the PDF file and try again.")
+  }
+  if (!file.exists(p)) abort("The source PDF is no longer at ", p, ". Set `doc$source$path` to its new location.")
+  if (!identical(sha256_file(p), doc$source$sha256)) abort("The source PDF has changed since parsing (checksum differs).")
+  invisible(TRUE)
 }

@@ -84,7 +84,7 @@ contacts NCBI only when you set `allow_network = TRUE`, and by default it
 refuses articles whose license is not an open license.
 
 ```{r, eval = FALSE}
-f <- sc_fetch_pmc("PMC1234567", dest = tempdir(), allow_network = TRUE)
+f <- sc_fetch_pmc("PMC1234567", dest = file.path(tempdir(), "PMC1234567.xml"), allow_network = TRUE)
 doc <- sc_parse(f)
 ```
 

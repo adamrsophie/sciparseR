@@ -15,9 +15,9 @@ First release.
 * PDF layout: line segmentation, superscript detection, recursive XY-cut
   reading order with gutter detection, repeated header, footer and page
   number detection, conservative hyphenation repair with a document
-  vocabulary, paragraph continuation across pages, page rotation and
-  image-only page detection.
-* Tables: caption anchored and uncaptioned detection, column intervals,
+  vocabulary, paragraph continuation across pages, detection of 90 and
+  270 degree page rotation and image-only page detection.
+* PDF tables: caption anchored and uncaptioned detection, column intervals,
   rule based spanning headers, header rows, wrapped labels, footnote
   markers, missing value markers, table footnotes and conservative
   continuation joining (`joined` versus `possible`).
@@ -26,10 +26,11 @@ First release.
   superscript and author year citation linking.
 * JATS: metadata, sections, paragraphs, tables with row and column spans,
   figures, display formulas with TeX and MathML, references, cross
-  references, footnotes and supplementary material. `sc_fetch_pmc()`
+  references, table and document footnotes and supplementary material;
+  named entities are kept as characters. `sc_fetch_pmc()`
   downloads open access articles and only with `allow_network = TRUE`.
 * Optional OCR of image-only pages with tesseract, with per page status and
-  word confidence.
+  word confidence. OCR pages get paragraphs only.
 
 ## Extraction
 
@@ -50,7 +51,9 @@ First release.
   (Anthropic, OpenAI, OpenRouter, Google Gemini and Vertex, Azure OpenAI,
   AWS Bedrock, Ollama, Mistral, Groq, DeepSeek and others) and ChatGPT
   plans through ellmercodex, with quote verification, `model_inferred`
-  data origin, prompt hashes and token and cost accounting.
+  data origin, prompt hashes and token and cost accounting. Tables are
+  sent as cell passages; numbers, categories and context are checked
+  against the quote and passage.
 * `sc_validate()` with count, confidence interval, ratio, p-value, p and
   CI agreement, binding, dispersion, sample size, time point and text
   versus table conflict rules; justified exceptions; `sc_review_queue()`,
@@ -62,4 +65,9 @@ First release.
   Parquet, JATS, evidence tables and per table CSV files.
 * `sc_parse_batch()` with a content addressed cache, `sc_evaluate()`
   against ground truth, figure crops and evidence highlighting, GROBID TEI
-  comparison and a checksum verified ONNX model registry.
+  comparison and a checksum verified ONNX model registry (no parser step
+  uses ONNX models yet).
+* `sc_derive()` computes the SD from an SE only with the number analyzed
+  that the document reports with the result, or one you pass; the
+  randomized arm size is used only with `allow_randomized_n = TRUE` and
+  is noted in the record.

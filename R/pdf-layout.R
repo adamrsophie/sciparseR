@@ -63,7 +63,7 @@ build_lines <- function(w, cfg) {
   }
   w$segment <- seg
   # superscripts: clearly smaller font, raised above the segment center
-  w$superscript <- FALSE
+  w$superscript <- rep(FALSE, nrow(w))
   for (sg in unique(seg)) {
     ix <- which(seg == sg)
     if (length(ix) < 2L) next
@@ -103,8 +103,8 @@ build_lines <- function(w, cfg) {
 
 # Mark running headers, footers and page numbers using all pages.
 mark_marginal <- function(lines, page_h, cfg, body_size) {
-  lines$marginal <- NA_character_
-  lines$marginal_status <- NA_character_
+  lines$marginal <- rep(NA_character_, nrow(lines))
+  lines$marginal_status <- rep(NA_character_, nrow(lines))
   if (!nrow(lines) || !cfg$detect_headers) return(lines)
   band_top <- cfg$header_band * page_h[lines$page]
   band_bot <- (1 - cfg$header_band) * page_h[lines$page]
@@ -282,7 +282,7 @@ math_chars <- "[=\u00b1\u2264\u2265\u2260\u2248\u2211\u220f\u222b\u221a\u03b1-\u
 # Equation rows: a math line with an equation number at the right margin,
 # or a short centered math line.
 mark_equations <- function(lines, col_left, col_right) {
-  lines$equation <- NA_integer_
+  lines$equation <- rep(NA_integer_, nrow(lines))
   lab <- which(grepl("^\\([0-9]{1,3}[a-z]?\\)$", trimws(lines$text)))
   eq <- 0L
   for (i in lab) {
