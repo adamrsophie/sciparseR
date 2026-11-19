@@ -318,9 +318,13 @@ conflict_findings <- function(r) {
   ctx <- paste(outcome_key(res$outcome), res$effect_measure %|NA|% "", res$statistic, sep = "|")
   out <- list()
   done <- character()
+  # only pairs from different sources with the same context can conflict:
+  # look those up by context instead of scanning all pairs
+  if (length(unique(src)) < 2L) return(out)
+  by_ctx <- split(seq_len(nrow(res)), ctx)
   for (i in seq_len(nrow(res))) {
-    for (j in seq_len(nrow(res))) {
-      if (j <= i || src[i] == src[j] || ctx[i] != ctx[j]) next
+    cand <- by_ctx[[ctx[i]]]
+    for (j in cand[cand > i & src[cand] != src[i]]) {
       same_adj <- identical(res$adjusted[i], res$adjusted[j]) || is.na(res$adjusted[i]) || is.na(res$adjusted[j])
       if (!same_adj) next
       tp_eq <- identical(res$timepoint[i], res$timepoint[j])
