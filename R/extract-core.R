@@ -145,9 +145,9 @@ add_record <- function(col, field, value, statistic = NA_character_, value_num =
 }
 
 collector_frames <- function(col) {
-  recs <- bind_entity(lapply(col$records, function(r) as.data.frame(r[!vapply(r, is.null, logical(1))], stringsAsFactors = FALSE)), "records")
+  recs <- bind_entity(col$records, "records")
   if (nrow(recs)) recs$record_id <- sprintf("rec-%05d", seq_len(nrow(recs)))
-  ev <- bind_entity(lapply(col$evidence, function(e) as.data.frame(e[!vapply(e, is.null, logical(1))], stringsAsFactors = FALSE)), "evidence")
+  ev <- bind_entity(col$evidence, "evidence")
   list(records = recs, evidence = ev)
 }
 

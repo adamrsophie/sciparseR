@@ -116,22 +116,24 @@ as_entity <- function(x, entity) {
   if (n == 0L) return(empty_entity(entity))
   cols <- lapply(names(spec), function(nm) {
     v <- x[[nm]]
-    if (is.null(v)) v <- rep(.na_of(spec[[nm]]), n)
+    if (is.null(v) || !length(v)) v <- rep(.na_of(spec[[nm]]), n)
     if (length(v) == 1L && n > 1L) v <- rep(v, n)
-    .cast(v, spec[[nm]])
+    if (length(v) != n) abort("Column `", nm, "` of ", entity, " has ", length(v), " values for ", n, " rows.")
+    unname(.cast(v, spec[[nm]]))
   })
   names(cols) <- names(spec)
-  out <- as.data.frame(cols, stringsAsFactors = FALSE)
-  rownames(out) <- NULL
-  out
+  # built directly: as.data.frame() per row dominated extraction and JATS
+  # table parsing
+  structure(cols, class = "data.frame", row.names = .set_row_names(n))
 }
 
 bind_entity <- function(lst, entity) {
   lst <- Filter(function(z) !is.null(z) && NROW(z) > 0L, lst)
   if (!length(lst)) return(empty_entity(entity))
-  out <- do.call(rbind, lapply(lst, as_entity, entity = entity))
-  rownames(out) <- NULL
-  out
+  parts <- lapply(lst, as_entity, entity = entity)
+  spec <- .entity_specs_all()[[entity]]
+  cols <- lapply(stats::setNames(names(spec), names(spec)), function(nm) unlist(lapply(parts, `[[`, nm), use.names = FALSE))
+  structure(cols, class = "data.frame", row.names = .set_row_names(sum(vapply(parts, nrow, integer(1)))))
 }
 
 make_id <- function(prefix, page, i) {
