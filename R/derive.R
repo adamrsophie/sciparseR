@@ -30,6 +30,12 @@
 #'   `n` is reported or supplied. Off by default.
 #' @param assume_level Confidence level (in percent) to assume when it is
 #'   not stated; `NULL` (the default) skips such intervals.
+#' Inputs that fail an error rule of [sc_validate()] are never used. The
+#' supplied or assumed `n` and confidence level are stored in
+#' `assumptions`; deriving again with other inputs or assumptions
+#' supersedes the earlier derived record (kept with status `"superseded"`,
+#' linked by `supersedes`).
+#'
 #' @return The extraction with derived records appended.
 #' @examples
 #' doc <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"))
@@ -46,10 +52,15 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
   }
   what <- match.arg(what, several.ok = TRUE)
   r <- x$records
-  live <- r[r$status == "reported" & r$data_origin != "derived" & !is.na(r$observation_id), , drop = FALSE]
+  # inputs must pass validation: a value failing an error rule (130 events
+  # of 100) is never used, whether or not sc_validate() was run first
+  bad <- sc_validate(x)$records
+  bad <- bad$record_id[bad$status == "inconsistent"]
+  live <- r[r$status == "reported" & r$data_origin != "derived" & !is.na(r$observation_id) &
+              !r$record_id %in% bad, , drop = FALSE]
   sw <- paste0("R ", R.version$major, ".", R.version$minor, " (stats); sciparseR ", pkg_version("sciparseR"))
   out <- list()
-  add <- function(base, statistic, value, inputs, formula, notes = NA_character_) {
+  add <- function(base, statistic, value, inputs, formula, notes = NA_character_, assumptions = NA_character_) {
     rec <- base
     rec$statistic <- statistic
     rec$value_num <- value
@@ -63,6 +74,8 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
     rec$evidence_id <- rep(NA_character_, nrow(rec))
     rec$validation_status <- rep(NA_character_, nrow(rec))
     rec$notes <- notes
+    rec$assumptions <- assumptions
+    rec$supersedes <- NA_character_
     out[[length(out) + 1L]] <<- rec
   }
   pick <- function(ro, stat) {
@@ -94,9 +107,11 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
       hi <- pick(ro, "ci_upper")
       lvl <- ro$ci_level[!is.na(ro$ci_level)][1]
       note <- NA_character_
+      assumed <- NA_character_
       if (is.na(lvl) && !is.null(assume_level)) {
         lvl <- assume_level
         note <- paste0("confidence level not stated; ", assume_level, "% assumed by the analyst")
+        assumed <- paste0("ci_level=", assume_level)
       }
       # a credible or prediction interval is not a confidence interval: no
       # standard error is read from it
@@ -105,7 +120,7 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
       if (!is.na(lvl) && lvl > 0 && lvl < 100 && isTRUE(lo$value_num > 0 && hi$value_num > lo$value_num)) {
         z <- stats::qnorm(1 - (1 - lvl / 100) / 2)
         add(base, "se_log", (log(hi$value_num) - log(lo$value_num)) / (2 * z), c(lo$record_id, hi$record_id),
-            sprintf("(log(ci_upper) - log(ci_lower)) / (2 * qnorm(%s))", format(1 - (1 - lvl / 100) / 2)), note)
+            sprintf("(log(ci_upper) - log(ci_lower)) / (2 * qnorm(%s))", format(1 - (1 - lvl / 100) / 2)), note, assumed)
       }
     }
     if ("sd_from_se" %in% what && "se" %in% stats_here) {
@@ -113,6 +128,7 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
       arm <- base$arm
       nn <- NA_real_
       src <- NA_character_
+      assumed <- NA_character_
       n_ids <- character()
       own <- ro[ro$statistic %in% c("n", "denominator") & !is.na(ro$value_num), , drop = FALSE]
       if (nrow(own)) {
@@ -123,6 +139,7 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
       } else if (!is.null(n) && !is.na(arm) && arm %in% names(n)) {
         nn <- unname(n[[arm]])
         src <- sprintf("n = %s supplied by the analyst", format(nn))
+        assumed <- paste0("n=", format(nn), " supplied")
       } else if (allow_randomized_n && !is.na(arm)) {
         an <- r[r$field == "arm_n" & r$status == "reported" & tolower(r$arm %|NA|% "") == tolower(arm) &
                   !is.na(r$value_num), , drop = FALSE]
@@ -131,22 +148,29 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
           n_ids <- an$record_id[1]
           src <- sprintf(paste("n = %s is the arm size from record %s (allocation), not a reported",
                                "number analyzed for this result; assumed by request"), format(nn), n_ids)
+          assumed <- paste0("n=", format(nn), " from arm size")
         }
       }
       if (!is.na(nn) && nn > 0) {
-        add(base, "sd", se$value_num * sqrt(nn), c(se$record_id, n_ids), "se * sqrt(n)", src)
+        add(base, "sd", se$value_num * sqrt(nn), c(se$record_id, n_ids), "se * sqrt(n)", src, assumed)
         out[[length(out)]]$dispersion_type <- "sd"
       }
     }
   }
   if (!length(out)) return(x)
   new <- do.call(rbind, out)
-  # running sc_derive() again adds only what is not already derived
-  have <- r[r$data_origin %in% "derived" & r$status != "superseded", , drop = FALSE]
-  key <- function(d) paste(d$statistic, d$observation_id, d$inputs, d$formula, sep = "|")
+  # running sc_derive() again adds only what is not already derived; a
+  # derivation of the same quantity from other inputs or assumptions (a
+  # changed n) supersedes the old one, which stays as history
+  have <- r[r$data_origin %in% "derived" & !r$status %in% "superseded", , drop = FALSE]
+  slot <- function(d) paste(d$statistic, d$observation_id, d$method, sep = "|")
+  key <- function(d) paste(slot(d), d$inputs, d$formula, d$assumptions, sep = "|")
   new <- new[!key(new) %in% key(have), , drop = FALSE]
   if (!nrow(new)) return(x)
   new$record_id <- sprintf("rec-%05d", nrow(r) + seq_len(nrow(new)))
+  old <- match(slot(new), slot(have))
+  new$supersedes[!is.na(old)] <- have$record_id[old[!is.na(old)]]
+  r$status[r$record_id %in% new$supersedes] <- "superseded"
   x$records <- rbind(r, new)
   x
 }

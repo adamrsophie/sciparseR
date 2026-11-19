@@ -2,7 +2,7 @@
 #'
 #' Runs deterministic scientific checks over an `sc_extraction` and records
 #' each finding in `x$validation`. Record level `validation_status` becomes
-#' `"pass"`, `"warning"`, `"fail"` or `"exception"`. A reported value that
+#' `"pass"`, `"not_checked"`, `"warning"`, `"fail"` or `"exception"`. A reported value that
 #' fails a rule of severity error (and has no exception) gets status
 #' `"inconsistent"`: it is kept, shown in the review queue and not used by
 #' [sc_derive()]. Validating again restores `"reported"` when the failure is
@@ -13,10 +13,17 @@
 #'   are positive.
 #' * `events_le_denominator`: events do not exceed their denominator.
 #' * `percent_consistent`: a reported percentage matches events over
-#'   denominator within rounding.
+#'   denominator within rounding. A count and percentage with no stated
+#'   denominator (an n (%) cell) gets result `"not_checked"`; no
+#'   denominator is assumed.
 #' * `ci_ordered`: lower limit < upper limit and the estimate lies inside.
 #' * `ratio_positive`: ratio measures and their limits are positive.
 #' * `p_range`: p-values lie in \[0, 1\].
+#' * `value_domain`: values are finite; SD and SE are not negative; a
+#'   percentage reported with a count lies in \[0, 100\] (a percent change
+#'   without a count may be signed or exceed 100); quartiles and range
+#'   limits are ordered around the median. Derived values whose inputs fail
+#'   an error rule become `"inconsistent"` too.
 #' * `p_ci_agreement`: for ratio and difference measures with a 95% CI,
 #'   whether the CI excludes the null agrees with p < 0.05.
 #' * `estimate_bound`: comparative estimates name an outcome and both arms
@@ -31,7 +38,10 @@
 #'   measure, statistic, adjustment) reported with different values in
 #'   text and tables. Different arms, time points or analysis sets are
 #'   never merged: they are compared only when one side leaves the context
-#'   unbound, and such matches are reported as possible conflicts.
+#'   unbound, and such matches are reported as possible conflicts; so are
+#'   matches whose time point, analysis set or arms are missing on both
+#'   sides. Values that agree within the rounding of their printed digits
+#'   (0.6 and 0.62) do not conflict.
 #' * `vocabulary`, `type` and `multiplicity`: categorical values belong to
 #'   the field's allowed values; numeric fields parse as numbers, integer
 #'   fields hold whole numbers, logical fields true or false; a field that
@@ -99,6 +109,18 @@ sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
         add("percent_consistent", "warning", if (ok) "pass" else "fail", rid(ro, c("events", "denominator", "percent")), o,
             sprintf("reported %s%%, computed %.2f%%", txt, calc))
       }
+    }
+    for (f in domain_findings(ro)) add(f[[1]], "error", f[[2]], f[[3]], o, f[[4]])
+    # "12 (99)" in an n (%) column: the denominator is not stated with the
+    # value, so the percentage is not checked; the arm size in a header is
+    # an allocation number, not necessarily this outcome's denominator
+    cnt <- val(ro, c("count", "events"))
+    if (!is.na(pct) && !is.na(cnt) && is.na(den)) {
+      a <- ro$arm[1]
+      an <- r$value_num[live & r$field == "arm_n" & !is.na(r$value_num) & !is.na(a) & r$arm %in% a]
+      hint <- if (length(unique(an)) == 1L) sprintf("; with the arm size %s it would be %.1f%%", an[1], 100 * cnt / an[1]) else ""
+      add("percent_consistent", "info", "not_checked", rid(ro, c("count", "events", "percent")), o,
+          paste0("denominator not stated with the value; percentage not checked", hint))
     }
     est <- val(ro, "estimate")
     lo <- val(ro, "ci_lower")
@@ -232,7 +254,54 @@ sc_validate <- function(x, exceptions = NULL, tolerance = 0.1) {
   bad <- unique(unlist(strsplit(hard, ",", fixed = TRUE)))
   mark <- x$records$record_id %in% bad & x$records$status == "reported"
   x$records$status[mark] <- "inconsistent"
+  # a derived value whose input is inconsistent is inconsistent too, and so
+  # on down the chain of derivations
+  repeat {
+    rr <- x$records
+    gone <- rr$record_id[rr$status == "inconsistent"]
+    dep <- rr$data_origin %in% "derived" & rr$status == "reported" & !is.na(rr$inputs) &
+      vapply(strsplit(as.character(ifelse(is.na(rr$inputs), "", rr$inputs)), "[,; ]+"), function(z) any(z %in% gone), logical(1))
+    if (!any(dep)) break
+    x$records$status[dep] <- "inconsistent"
+    x$records$notes[dep] <- "an input of this derived value failed validation"
+  }
   x
+}
+
+# Domain of each statistic: finite numbers; SD, SE and dispersion not
+# negative; a percentage of a count within 0 to 100 (a percent change with
+# no count may be signed or above 100); quartiles ordered around the
+# median and range limits ordered.
+domain_findings <- function(ro) {
+  out <- list()
+  nonfinite <- is.nan(ro$value_num) | is.infinite(ro$value_num)
+  if (any(nonfinite)) out[[length(out) + 1L]] <- list("value_domain", "fail", ro$record_id[nonfinite], "value is not a finite number")
+  disp <- ro$statistic %in% c("sd", "se", "dispersion") & !is.na(ro$value_num)
+  if (any(disp)) {
+    ok <- ro$value_num[disp] >= 0
+    out[[length(out) + 1L]] <- list("value_domain", if (all(ok)) "pass" else "fail", ro$record_id[disp],
+                                    if (all(ok)) "SD and SE are not negative" else "an SD or SE is negative")
+  }
+  pct <- ro$statistic %in% "percent" & !is.na(ro$value_num)
+  if (any(pct) && any(ro$statistic %in% c("events", "count", "denominator"))) {
+    ok <- ro$value_num[pct] >= 0 & ro$value_num[pct] <= 100
+    out[[length(out) + 1L]] <- list("value_domain", if (all(ok)) "pass" else "fail", ro$record_id[pct],
+                                    if (all(ok)) "percentage of a count within 0 to 100" else
+                                      sprintf("percentage %s of a count is outside 0 to 100", paste(ro$value[pct][!ok], collapse = ", ")))
+  }
+  g <- function(s) {
+    z <- ro$value_num[ro$statistic %in% s & !is.na(ro$value_num)]
+    if (length(z)) z[1] else NA_real_
+  }
+  ord <- list(c("q1", "median", "q3"), c("min", "median", "max"))
+  for (o in ord) {
+    z <- vapply(o, g, numeric(1))
+    if (sum(!is.na(z)) < 2L) next
+    ok <- !is.unsorted(z[!is.na(z)])
+    out[[length(out) + 1L]] <- list("value_domain", if (ok) "pass" else "fail", ro$record_id[ro$statistic %in% o],
+                                    if (ok) paste(o, collapse = " <= ") else sprintf("%s are not ordered", paste(o, collapse = ", ")))
+  }
+  out
 }
 
 outcome_key <- function(x) {
@@ -266,12 +335,22 @@ conflict_findings <- function(r) {
       arm_eq <- identical(res$arm[i], res$arm[j]) && identical(res$comparator[i], res$comparator[j])
       arm_wild <- (is.na(res$arm[i]) && is.na(res$comparator[i])) || (is.na(res$arm[j]) && is.na(res$comparator[j]))
       if (!(arm_eq || arm_wild)) next
-      # a definite conflict needs the same time point, analysis set and
-      # adjustment; an unknown adjustment on one side leaves it possible
-      exact <- tp_eq && as_eq && po_eq && arm_eq && identical(res$adjusted[i], res$adjusted[j])
+      # a definite conflict needs the same known time point, analysis set
+      # and arms, and the same adjustment; context missing on either side,
+      # or on both, leaves it possible
+      known <- function(z) !is.na(z[i]) && !is.na(z[j]) && z[i] == z[j]
+      exact <- known(res$timepoint) && known(res$analysis_set) && known(res$arm) && known(res$comparator) &&
+        po_eq && identical(res$adjusted[i], res$adjusted[j])
       key <- paste(sort(c(res$observation_id[i], res$observation_id[j])), collapse = "~")
       if (key %in% done) next
       differ <- abs(res$value_num[i] - res$value_num[j]) > 1e-9
+      # 0.6 and 0.62 can be one value printed at two precisions
+      if (differ && abs(res$value_num[i] - res$value_num[j]) <= half_unit(res$value[i]) + half_unit(res$value[j]) + 1e-12) {
+        out[[length(out) + 1L]] <- list("cross_source_conflict", "info", "pass", c(res$record_id[i], res$record_id[j]),
+                                        res$observation_id[i], sprintf("%s %s and %s agree within rounding (%s)", res$statistic[i],
+                                                                       res$value[i], res$value[j], res$outcome[i]))
+        next
+      }
       if (!differ) {
         out[[length(out) + 1L]] <- list("cross_source_conflict", "info", "pass", c(res$record_id[i], res$record_id[j]),
                                         res$observation_id[i], sprintf("%s %s agrees between text and table (%s)", res$statistic[i], res$value[i], res$outcome[i]))
@@ -287,6 +366,13 @@ conflict_findings <- function(r) {
     }
   }
   out
+}
+
+# Half the last printed digit: 0.05 for "0.6", 0.005 for "0.62".
+half_unit <- function(txt) {
+  t <- sub("[eE].*$", "", gsub("[^0-9.\u00b7]", "", txt %|NA|% ""))
+  dec <- if (grepl("[.\u00b7]", t)) nchar(sub("^.*[.\u00b7]", "", t)) else 0L
+  0.5 * 10^(-dec)
 }
 
 apply_exceptions <- function(v, exceptions) {
@@ -309,7 +395,7 @@ apply_exceptions <- function(v, exceptions) {
 record_status <- function(records, v) {
   st <- rep("pass", nrow(records))
   st[!records$record_id %in% unlist(strsplit(v$record_ids, ","))] <- NA_character_
-  rank <- c(pass = 0, exception = 1, warning = 2, possible_conflict = 2, fail = 3)
+  rank <- c(pass = 0, not_checked = 0.5, exception = 1, warning = 2, possible_conflict = 2, fail = 3)
   for (i in seq_len(nrow(v))) {
     ids <- strsplit(v$record_ids[i], ",")[[1]]
     res <- if (v$result[i] == "fail" && v$severity[i] == "warning") "warning" else v$result[i]
@@ -404,6 +490,7 @@ sc_correct <- function(x, record_id, value, reviewer, reason, ...) {
   check_string(record_id, "record_id")
   check_string(reviewer, "reviewer")
   check_string(reason, "reason")
+  if (!nzchar(trimws(reviewer)) || !nzchar(trimws(reason))) abort("`reviewer` and `reason` must not be empty.")
   i <- match(record_id, x$records$record_id)
   if (is.na(i)) abort("Unknown record: ", record_id)
   if (x$records$status[i] == "superseded") abort("Record ", record_id, " is already superseded.")
@@ -419,6 +506,7 @@ sc_correct <- function(x, record_id, value, reviewer, reason, ...) {
   new$supersedes <- record_id
   new$reviewer <- reviewer
   new$notes <- reason
+  new$corrected_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   new$method <- rep("human_review", nrow(new))
   new$validation_status <- rep(NA_character_, nrow(new))
   new$record_id <- sprintf("rec-%05d", nrow(x$records) + 1L)

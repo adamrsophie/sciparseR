@@ -21,7 +21,12 @@ sc_derive(
 labels) for \code{"sd_from_se"}.}
 
 \item{assume_level}{Confidence level (in percent) to assume when it is
-not stated; \code{NULL} (the default) skips such intervals.}
+not stated; \code{NULL} (the default) skips such intervals.
+Inputs that fail an error rule of \code{\link[=sc_validate]{sc_validate()}} are never used. The
+supplied or assumed \code{n} and confidence level are stored in
+\code{assumptions}; deriving again with other inputs or assumptions
+supersedes the earlier derived record (kept with status \code{"superseded"},
+linked by \code{supersedes}).}
 
 \item{allow_randomized_n}{Use the allocated arm size when no analyzed
 \code{n} is reported or supplied. Off by default.}

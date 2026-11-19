@@ -23,7 +23,7 @@ The extraction with \code{validation} filled and record
 \description{
 Runs deterministic scientific checks over an \code{sc_extraction} and records
 each finding in \code{x$validation}. Record level \code{validation_status} becomes
-\code{"pass"}, \code{"warning"}, \code{"fail"} or \code{"exception"}. A reported value that
+\code{"pass"}, \code{"not_checked"}, \code{"warning"}, \code{"fail"} or \code{"exception"}. A reported value that
 fails a rule of severity error (and has no exception) gets status
 \code{"inconsistent"}: it is kept, shown in the review queue and not used by
 \code{\link[=sc_derive]{sc_derive()}}. Validating again restores \code{"reported"} when the failure is
@@ -36,10 +36,17 @@ Rules:
 are positive.
 \item \code{events_le_denominator}: events do not exceed their denominator.
 \item \code{percent_consistent}: a reported percentage matches events over
-denominator within rounding.
+denominator within rounding. A count and percentage with no stated
+denominator (an n (\%) cell) gets result \code{"not_checked"}; no
+denominator is assumed.
 \item \code{ci_ordered}: lower limit < upper limit and the estimate lies inside.
 \item \code{ratio_positive}: ratio measures and their limits are positive.
 \item \code{p_range}: p-values lie in [0, 1].
+\item \code{value_domain}: values are finite; SD and SE are not negative; a
+percentage reported with a count lies in [0, 100] (a percent change
+without a count may be signed or exceed 100); quartiles and range
+limits are ordered around the median. Derived values whose inputs fail
+an error rule become \code{"inconsistent"} too.
 \item \code{p_ci_agreement}: for ratio and difference measures with a 95\% CI,
 whether the CI excludes the null agrees with p < 0.05.
 \item \code{estimate_bound}: comparative estimates name an outcome and both arms
@@ -54,7 +61,10 @@ outcome is reported at defined time points.
 measure, statistic, adjustment) reported with different values in
 text and tables. Different arms, time points or analysis sets are
 never merged: they are compared only when one side leaves the context
-unbound, and such matches are reported as possible conflicts.
+unbound, and such matches are reported as possible conflicts; so are
+matches whose time point, analysis set or arms are missing on both
+sides. Values that agree within the rounding of their printed digits
+(0.6 and 0.62) do not conflict.
 \item \code{vocabulary}, \code{type} and \code{multiplicity}: categorical values belong to
 the field's allowed values; numeric fields parse as numbers, integer
 fields hold whole numbers, logical fields true or false; a field that

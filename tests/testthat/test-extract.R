@@ -71,7 +71,7 @@ test_that("user schemas work with patterns and vocabularies", {
 test_that("extraction on JATS", {
   j <- sc_parse(fixture("trial_article.xml"))
   x <- sc_validate(sc_extract(j))
-  expect_true(all(x$validation$result %in% c("pass")))
+  expect_true(all(x$validation$result %in% c("pass", "not_checked")))
   ev <- x$evidence
   expect_true(all(!is.na(ev$xpath[!is.na(ev$block_id) | !is.na(ev$cell_id)])))
 })

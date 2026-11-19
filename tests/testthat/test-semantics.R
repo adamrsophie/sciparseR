@@ -170,3 +170,84 @@ test_that("custom categorical fields keep every hit and the source token", {
   expect_equal(y$records$value[y$records$field == "setting"], "primary")
   expect_equal(y$evidence$value_text[match(y$records$evidence_id[1], y$evidence$evidence_id)], "general practice")
 })
+
+test_that("a changed n supersedes the derived SD", {
+  d <- jats_text("", methods = "Patients were randomly assigned to receive Drug A or placebo.",
+                 extra = jats_table(c("Outcome", "Drug A", "Placebo"), list(c("Change in SBP, mean (SE)", "-8.0 (2.0)", "-3.0 (1.5)"))))
+  x <- sc_extract(d, "numerical_results")
+  a <- sc_derive(x, "sd_from_se", n = c("Drug A" = 100, placebo = 100))
+  sd_a <- function(z) z$records[z$records$statistic %in% "sd" & z$records$arm %in% "Drug A", ]
+  expect_equal(sd_a(a)$value_num, 20)
+  b <- sc_derive(a, "sd_from_se", n = c("Drug A" = 25, placebo = 100))
+  s <- sd_a(b)
+  expect_equal(s$value_num[s$status == "reported"], 10)
+  expect_equal(s$status[s$value_num == 20], "superseded")
+  expect_equal(s$supersedes[s$status == "reported"], s$record_id[s$value_num == 20])
+  expect_equal(s$assumptions[s$status == "reported"], "n=25 supplied")
+  # the same n again adds nothing
+  expect_equal(nrow(sc_derive(b, "sd_from_se", n = c("Drug A" = 25, placebo = 100))$records), nrow(b$records))
+})
+
+test_that("impossible inputs never give accepted derived values", {
+  y <- sc_extract(jats_text("Death occurred in 130 of 100 patients in the Drug A group."), "numerical_results")
+  for (z in list(sc_derive(y, "percent"), sc_derive(sc_validate(y), "percent"), sc_validate(sc_derive(y, "percent")))) {
+    expect_false(any(z$records$data_origin == "derived" & z$records$status == "reported"))
+  }
+  # an input that becomes impossible later takes its derived values with it
+  ok <- sc_derive(sc_extract(jats_text("Death occurred in 30 of 100 patients in the Drug A group."), "numerical_results"), "percent")
+  expect_true(any(ok$records$data_origin == "derived"))
+  ok$records$value_num[ok$records$statistic == "events"] <- 130
+  v <- sc_validate(ok)
+  expect_equal(v$records$status[v$records$data_origin == "derived"], "inconsistent")
+})
+
+test_that("statistic domains are enforced", {
+  dom <- function(rows, h = c("Outcome", "Drug A", "Placebo")) {
+    v <- sc_validate(sc_extract(jats_text("", extra = jats_table(h, rows)), "numerical_results"))
+    v$validation[v$validation$rule == "value_domain", ]
+  }
+  expect_true(any(dom(list(c("Pain score, mean (SD)", "5.0 (-1.2)", "4.0 (1.1)")))$result == "fail"))
+  expect_true(any(dom(list(c("Pain score, mean (SE)", "5.0 (-0.3)", "4.0 (0.2)")))$result == "fail"))
+  expect_true(any(dom(list(c("Death, n (%)", "10 (120.0)", "20 (20.0)")))$result == "fail"))
+  expect_true(any(dom(list(c("Length of stay, median (IQR)", "5 (7 to 9)", "4 (3 to 6)")))$result == "fail"))
+  # valid values pass, and a signed percent change is not a proportion
+  expect_false(any(dom(list(c("Death, n (%)", "10 (10.0)", "20 (20.0)")))$result == "fail"))
+  r <- sc_extract(jats_text("Body weight changed by -12.5% with Drug A."), "numerical_results")
+  expect_false(any(sc_validate(r)$validation$result[sc_validate(r)$validation$rule == "value_domain"] == "fail"))
+})
+
+test_that("corrections need a reviewer and a reason and carry a time", {
+  x <- sc_extract(jats_text("Death occurred in 30 of 100 patients in the Drug A group."), "numerical_results")
+  id <- x$records$record_id[x$records$statistic == "events"]
+  expect_error(sc_correct(x, id, "31", reviewer = " ", reason = "typo"), "must not be empty")
+  expect_error(sc_correct(x, id, "31", reviewer = "AB", reason = ""), "must not be empty")
+  y <- sc_correct(x, id, "31", reviewer = "AB", reason = "typo in source")
+  new <- y$records[y$records$supersedes %in% id, ]
+  expect_match(new$corrected_at, "^[0-9]{4}-[0-9]{2}-[0-9]{2}T")
+  expect_equal(new$observation_id, x$records$observation_id[x$records$record_id == id])
+})
+
+test_that("rounded restatements are not contradictions", {
+  conf <- function(a, b) {
+    d <- jats_text(paste0("The hazard ratio for death with Drug A versus placebo was ", a, " (95% CI 0.40 to 0.95)."),
+                   methods = "Patients were randomly assigned to receive Drug A or placebo.",
+                   extra = jats_table(c("Outcome", "Drug A", "Placebo", "Hazard ratio (95% CI)"),
+                                      list(c("Death, n (%)", "10 (10.0)", "20 (20.0)", paste0(b, " (0.40 to 0.95)")))))
+    v <- sc_validate(sc_extract(d, "numerical_results"))$validation
+    v[v$rule == "cross_source_conflict" & grepl("estimate", v$message), "result"]
+  }
+  expect_equal(conf("0.6", "0.62"), "pass")
+  expect_true(conf("0.6", "0.72") %in% c("fail", "possible_conflict"))
+  # neither side states a time point or analysis set: possible, not definite
+  expect_equal(conf("0.60", "0.72"), "possible_conflict")
+})
+
+test_that("n (%) cells without a denominator are marked not checked", {
+  d <- jats_text("", extra = jats_table(c("Outcome", "Drug A (n=100)", "Placebo (n=100)"), list(c("Death, n (%)", "12 (99)", "20 (20)"))))
+  v <- sc_validate(sc_extract(d, "clinical_trial"))
+  pc <- v$validation[v$validation$rule == "percent_consistent", ]
+  expect_true(all(pc$result == "not_checked"))
+  expect_match(pc$message[1], "not checked; with the arm size 100 it would be 12.0%")
+  expect_false("denominator" %in% v$records$statistic)
+  expect_true(all(v$records$validation_status[v$records$statistic %in% "percent"] == "not_checked"))
+})
