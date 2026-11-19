@@ -15,7 +15,10 @@
 #'   elsewhere in the document; otherwise the hyphen is kept.
 #' @param render Render pages to bitmaps to detect ruling lines, figure
 #'   regions and image-only pages. Without rendering, ruled tables are found
-#'   from text alignment only and figure boxes are not reported.
+#'   from text alignment only and figure boxes are not reported. With
+#'   `render = FALSE` no page is rasterized at all: page rotation comes from
+#'   the page tree and the word layout, and a rotation whose source cannot
+#'   be read is reported with source `"unknown"`.
 #' @param render_dpi Resolution of the analysis rendering.
 #' @param tables Detect and reconstruct tables.
 #' @param figures Detect figures from captions and rendered ink.

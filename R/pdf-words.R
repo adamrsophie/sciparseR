@@ -41,14 +41,17 @@ pdf_words <- function(path) {
   w[nzchar(trimws(w$text)), , drop = FALSE]
 }
 
-# Page geometry: media size from pdf_pagesize, displayed size from a tiny
-# rendering (poppler applies /Rotate when rendering). Rotation by 90 or 270
-# degrees swaps the displayed dimensions; the direction is read from the
-# direction in which consecutive words advance. Without swapped dimensions,
-# words that advance right to left mean the content is upside down (a
-# /Rotate 180 entry or content drawn rotated): rotation 180. Pages with too
-# few words to tell are reported as "assumed_0".
-pdf_page_geometry <- function(path, words) {
+# Page geometry. The /Rotate entry of each page is read from the page tree
+# of the file (inherited from /Pages nodes). A page whose entry is 90 or
+# 270 is displayed with its sides swapped. Without an entry, words that
+# advance right to left on a page mean content drawn upside down in the
+# page stream: rotation 180 with source "content". When the page tree
+# cannot be read (page dictionaries inside compressed object streams), a
+# tiny 4 dpi rendering, which applies /Rotate, tells whether the sides are
+# swapped; with `render = FALSE` nothing is rendered and the source of a
+# rotation is then "unknown". Pages with too few words to tell are
+# reported as "assumed_0".
+pdf_page_geometry <- function(path, words, render = TRUE) {
   ps <- pdftools::pdf_pagesize(path)
   n <- nrow(ps)
   out <- data.frame(page = seq_len(n), media_width = ps$width,
@@ -57,28 +60,37 @@ pdf_page_geometry <- function(path, words) {
                     rotation_status = "assumed_0", media_x0 = ps$left,
                     media_y0 = pmin(ps$top, ps$bottom), rotation_source = "none",
                     stringsAsFactors = FALSE)
-  # whether the file carries a /Rotate 180 entry: page dictionaries inside
-  # compressed object streams cannot be read this way
-  raw <- tryCatch(readBin(path, "raw", file.size(path)), error = function(e) raw())
-  has <- function(pat) length(grepRaw(pat, raw, fixed = FALSE)) > 0L
-  rot180_entry <- has("/Rotate[[:space:]]*-?180")
-  obj_streams <- has("/ObjStm")
+  entry <- page_rotate_entries(path, n)
   for (i in seq_len(n)) {
-    bm <- tryCatch(pdftools::pdf_render_page(path, page = i, dpi = 4),
-                   error = function(e) NULL)
-    if (is.null(bm)) {
-      out$rotation[i] <- NA_integer_
-      out$rotation_status[i] <- "unknown"
-      next
-    }
-    dw <- dim(bm)[2]
-    dh <- dim(bm)[3]
-    portrait_media <- ps$height[i] >= ps$width[i]
-    portrait_disp <- dh >= dw
-    if (abs(ps$width[i] - ps$height[i]) > 1 && portrait_media != portrait_disp) {
+    wp <- words[words$page == i, , drop = FALSE]
+    e <- entry[i]
+    if (!is.na(e) && e %in% c(90L, 270L)) {
       out$width[i] <- ps$height[i]
       out$height[i] <- ps$width[i]
-      wp <- words[words$page == i, , drop = FALSE]
+      out$rotation[i] <- e
+      out$rotation_status[i] <- "detected"
+      out$rotation_source[i] <- "rotate_entry"
+      next
+    }
+    if (!is.na(e) && e == 180L) {
+      out$rotation[i] <- 180L
+      out$rotation_status[i] <- "detected"
+      out$rotation_source[i] <- "rotate_entry"
+      next
+    }
+    swapped <- FALSE
+    if (is.na(e) && render && abs(ps$width[i] - ps$height[i]) > 1) {
+      bm <- tryCatch(pdftools::pdf_render_page(path, page = i, dpi = 4), error = function(e) NULL)
+      if (is.null(bm)) {
+        out$rotation[i] <- NA_integer_
+        out$rotation_status[i] <- "unknown"
+        next
+      }
+      swapped <- (ps$height[i] >= ps$width[i]) != (dim(bm)[3] >= dim(bm)[2])
+    }
+    if (swapped) {
+      out$width[i] <- ps$height[i]
+      out$height[i] <- ps$width[i]
       dir <- word_direction(wp)
       if (is.na(dir)) {
         out$rotation[i] <- NA_integer_
@@ -89,15 +101,67 @@ pdf_page_geometry <- function(path, words) {
       }
       out$rotation_source[i] <- "rotate_entry"
     } else {
-      h <- line_direction(words[words$page == i, , drop = FALSE])
+      h <- line_direction(wp)
       if (!is.na(h)) {
         out$rotation[i] <- if (h < 0) 180L else 0L
         out$rotation_status[i] <- "detected"
-        if (h < 0) out$rotation_source[i] <- if (rot180_entry) "rotate_entry" else if (obj_streams) "unknown" else "content"
+        if (h < 0) out$rotation_source[i] <- if (identical(e, 0L)) "content" else "unknown"
       }
     }
   }
   out
+}
+
+# The /Rotate entry of every page, from the page tree of an uncompressed
+# PDF: NA for all pages when the tree cannot be followed (object streams,
+# encryption, damaged files, or a page count that does not match).
+page_rotate_entries <- function(path, n) {
+  none <- rep(NA_integer_, n)
+  raw <- tryCatch(readBin(path, "raw", file.size(path)), error = function(e) raw())
+  if (!length(raw)) return(none)
+  # page dictionaries are ASCII: binary stream bytes become spaces
+  raw[raw == as.raw(0) | raw > as.raw(126)] <- as.raw(32)
+  txt <- rawToChar(raw)
+  m <- gregexpr("(?s)(?<![0-9])([0-9]+)\\s+[0-9]+\\s+obj\\b(.*?)(?:\\bstream\\b|\\bendobj\\b)", txt, perl = TRUE, useBytes = TRUE)[[1]]
+  if (m[1] < 0) return(none)
+  cs <- attr(m, "capture.start")
+  cl <- attr(m, "capture.length")
+  num <- substring(txt, cs[, 1], cs[, 1] + cl[, 1] - 1L)
+  body <- substring(txt, cs[, 2], cs[, 2] + cl[, 2] - 1L)
+  names(body) <- num
+  body <- body[!duplicated(num, fromLast = TRUE)]
+  get1 <- function(d, re) {
+    v <- regmatches(d, regexec(re, d, perl = TRUE))[[1]]
+    if (length(v) > 1L) v[2] else NA_character_
+  }
+  cat_i <- grep("/Type\\s*/Catalog", body, perl = TRUE)
+  if (length(cat_i) != 1L) return(none)
+  root <- get1(body[cat_i], "/Pages\\s+([0-9]+)\\s+[0-9]+\\s+R")
+  if (is.na(root)) return(none)
+  res <- integer()
+  seen <- character()
+  walk <- function(id, inherited) {
+    if (id %in% seen || !id %in% names(body) || length(res) > n) return(FALSE)
+    seen <<- c(seen, id)
+    d <- body[[id]]
+    r <- suppressWarnings(as.integer(get1(d, "/Rotate\\s+(-?[0-9]+)")))
+    if (is.na(r)) r <- inherited
+    if (grepl("/Type\\s*/Pages\\b", d, perl = TRUE)) {
+      kids <- get1(d, "/Kids\\s*\\[([^\\]]*)\\]")
+      if (is.na(kids)) return(FALSE)
+      ids <- regmatches(kids, gregexpr("[0-9]+(?=\\s+[0-9]+\\s+R)", kids, perl = TRUE))[[1]]
+      for (k in ids) if (!walk(k, r)) return(FALSE)
+      return(TRUE)
+    }
+    if (grepl("/Type\\s*/Page\\b", d, perl = TRUE)) {
+      res <<- c(res, ((r %% 360L) + 360L) %% 360L)
+      return(TRUE)
+    }
+    FALSE
+  }
+  ok <- tryCatch(walk(root, 0L), error = function(e) FALSE)
+  if (!isTRUE(ok) || length(res) != n) return(none)
+  res
 }
 
 # +1 when text advances downward (page displayed rotated 90 degrees

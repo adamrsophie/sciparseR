@@ -314,8 +314,9 @@ check_source_pdf <- function(doc) {
 #'   as [sc_blocks()], [sc_table_cells()] or [sc_evidence()].
 #' @return `x` with columns `pdf_x0`, `pdf_y0` (lower left corner),
 #'   `pdf_x1`, `pdf_y1` (upper right corner) and `pdf_space_status`:
-#'   `"converted"`, `"rotation_assumed_entry"` (a page shown upside down whose
-#'   rotation source could not be read; a `/Rotate` entry is assumed) or
+#'   `"converted"`, `"rotation_source_unknown"` (a rotated page whose
+#'   rotation source, a `/Rotate` entry or content drawn rotated, could not
+#'   be read; a `/Rotate` entry is assumed, so the box may be wrong) or
 #'   `"no_box"`.
 #' @examples
 #' doc <- sc_parse(system.file("extdata", "rotated.pdf", package = "sciparseR"))
@@ -347,7 +348,9 @@ sc_to_pdf_space <- function(doc, x) {
     out$pdf_x1[i] <- ox + m$x1
     out$pdf_y0[i] <- oy + mh - m$y1
     out$pdf_y1[i] <- oy + mh - m$y0
-    out$pdf_space_status[i] <- if (rot == 180L && src == "unknown") "rotation_assumed_entry" else "converted"
+    # a rotation whose source is unknown is undone as if it came from a
+    # /Rotate entry, and the status says that this is an assumption
+    out$pdf_space_status[i] <- if (rot != 0L && src == "unknown") "rotation_source_unknown" else "converted"
   }
   for (k in names(out)) x[[k]] <- out[[k]]
   x

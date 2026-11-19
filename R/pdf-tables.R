@@ -331,7 +331,10 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
 # the top row of its span and the covered empty cells are removed.
 header_row_spans <- function(cells, n_header) {
   if (n_header < 2L || !nrow(cells)) return(cells)
+  # positions already claimed by a span: no two cells may cover one
+  claimed <- character()
   empty_at <- function(r, cols) {
+    if (any(paste(r, cols) %in% claimed)) return(FALSE)
     k <- which(cells$row == r & cells$col %in% cols)
     length(k) && !any(nzchar(cells$text[k])) && all(cells$col[k] + cells$col_span[k] - 1L <= max(cols)) &&
       all(cells$col[k] >= min(cols))
@@ -346,6 +349,7 @@ header_row_spans <- function(cells, n_header) {
     if (top == bottom) next
     cov <- which(cells$row >= top & cells$row <= bottom & cells$col %in% cols & seq_len(nrow(cells)) != i)
     drop <- c(drop, cov)
+    claimed <- c(claimed, as.vector(outer(top:bottom, cols, paste)))
     cells$row[i] <- top
     cells$row_span[i] <- bottom - top + 1L
   }

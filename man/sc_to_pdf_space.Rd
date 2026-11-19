@@ -15,8 +15,9 @@ as \code{\link[=sc_blocks]{sc_blocks()}}, \code{\link[=sc_table_cells]{sc_table_
 \value{
 \code{x} with columns \code{pdf_x0}, \code{pdf_y0} (lower left corner),
 \code{pdf_x1}, \code{pdf_y1} (upper right corner) and \code{pdf_space_status}:
-\code{"converted"}, \code{"rotation_assumed_entry"} (a page shown upside down whose
-rotation source could not be read; a \verb{/Rotate} entry is assumed) or
+\code{"converted"}, \code{"rotation_source_unknown"} (a rotated page whose
+rotation source, a \verb{/Rotate} entry or content drawn rotated, could not
+be read; a \verb{/Rotate} entry is assumed, so the box may be wrong) or
 \code{"no_box"}.
 }
 \description{

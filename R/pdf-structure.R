@@ -215,8 +215,17 @@ build_sections <- function(blocks) {
     end <- if (i < length(hpos)) hpos[i + 1L] - 1L else nrow(blocks)
     blocks$section_id[hpos[i]:end] <- sid[i]
   }
+  # a section ends where its last descendant, at any depth, ends
+  descendants <- function(i) {
+    out <- sid[i]
+    repeat {
+      more <- sid[!is.na(parent) & parent %in% out & !sid %in% out]
+      if (!length(more)) return(out)
+      out <- c(out, more)
+    }
+  }
   page_end <- vapply(seq_along(sid), function(i) {
-    p <- blocks$page[blocks$section_id %in% c(sid[i], sid[!is.na(parent) & parent == sid[i]])]
+    p <- blocks$page[blocks$section_id %in% descendants(i)]
     as.integer(max(p, na.rm = TRUE))
   }, integer(1))
   secs <- as_entity(list(section_id = sid, parent_id = parent, level = lvl,

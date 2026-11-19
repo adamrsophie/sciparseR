@@ -36,7 +36,10 @@ elsewhere in the document; otherwise the hyphen is kept.}
 
 \item{render}{Render pages to bitmaps to detect ruling lines, figure
 regions and image-only pages. Without rendering, ruled tables are found
-from text alignment only and figure boxes are not reported.}
+from text alignment only and figure boxes are not reported. With
+\code{render = FALSE} no page is rasterized at all: page rotation comes from
+the page tree and the word layout, and a rotation whose source cannot
+be read is reported with source \code{"unknown"}.}
 
 \item{render_dpi}{Resolution of the analysis rendering.}
 

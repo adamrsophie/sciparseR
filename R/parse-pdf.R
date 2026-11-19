@@ -40,7 +40,7 @@ parse_pdf <- function(path, cfg, log, ocr_words = NULL) {
     words <- rbind(words[!words$page %in% unique(ocr_words$page), , drop = FALSE], ocr_words[, names(words)])
     words <- words[order(words$page, words$stream_order), , drop = FALSE]
   }
-  geom <- pdf_page_geometry(path, words)
+  geom <- pdf_page_geometry(path, words, render = !isFALSE(cfg$render))
   n_pages <- nrow(geom)
   if (nrow(words)) {
     words$span_id <- make_id("w", words$page, stats::ave(seq_len(nrow(words)), words$page, FUN = seq_along))
@@ -438,9 +438,14 @@ pdf_metadata <- function(path, blocks, n_pages) {
   }
   ab <- blocks[blocks$type == "heading" & grepl("^abstract$", tolower(blocks$text)), , drop = FALSE]
   if (nrow(ab)) {
-    nxt <- blocks[blocks$reading_order > ab$reading_order[1] & blocks$type == "paragraph", , drop = FALSE]
+    # every paragraph after the heading up to the next heading
+    after <- blocks[blocks$reading_order > ab$reading_order[1], , drop = FALSE]
+    after <- after[order(after$reading_order), , drop = FALSE]
+    stop_at <- which(after$type == "heading")[1]
+    if (!is.na(stop_at)) after <- after[seq_len(stop_at - 1L), , drop = FALSE]
+    nxt <- after[after$type == "paragraph", , drop = FALSE]
     if (nrow(nxt)) {
-      md$abstract <- nxt$text[1]
+      md$abstract <- paste(nxt$text, collapse = " ")
       md$sources$abstract <- "layout_after_abstract_heading"
     }
   }
