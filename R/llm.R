@@ -154,8 +154,8 @@ llm_system_prompt <- paste(
   "For every value, copy the exact supporting text from the passage into `quote` and give the passage's `block_id`.",
   "Do not compute, convert, round or infer values. If a field is not stated, omit it.",
   "Return a JSON array of objects with keys: field, value, quote, block_id, and optionally",
-  "statistic, arm, comparator, outcome, timepoint, analysis_set, unit, effect_measure, ci_level,",
-  "adjusted and observation.",
+  "statistic, arm, comparator, outcome, timepoint, analysis_set, population, unit, effect_measure,",
+  "ci_level, adjusted and observation.",
   "For numerical results, give one object per number: statistic is one of estimate, ci_lower, ci_upper,",
   "p_value, events, denominator, percent, mean, sd, se, median, iqr_lower, iqr_upper, n.",
   "Numbers that belong to the same result (an estimate with its interval and p-value, events with their",
@@ -217,6 +217,7 @@ llm_type <- function() {
     statistic = ellmer::type_string(required = FALSE), arm = ellmer::type_string(required = FALSE),
     comparator = ellmer::type_string(required = FALSE), outcome = ellmer::type_string(required = FALSE),
     timepoint = ellmer::type_string(required = FALSE), analysis_set = ellmer::type_string(required = FALSE),
+    population = ellmer::type_string(required = FALSE),
     unit = ellmer::type_string(required = FALSE), effect_measure = ellmer::type_string(required = FALSE),
     ci_level = ellmer::type_string(required = FALSE), adjusted = ellmer::type_string(required = FALSE),
     observation = ellmer::type_string(required = FALSE)))
@@ -328,7 +329,8 @@ llm_extract <- function(doc, schema, llm, ...) {
     for (i in seq_len(nrow(items))) verify_item(col, items[i, , drop = FALSE], schema, unique(ch$block_id), obs_map)
   }
   fr <- collector_frames(col)
-  fr$records <- add_not_reported(fr$records, schema, doc, "llm")
+  failed <- any(!is.na(vapply(calls, function(z) z$error, character(1))))
+  fr$records <- add_not_reported(fr$records, schema, doc, "llm", complete = !failed)
   llm_info <- list(model = llm$model, provider = llm$provider %||% NA_character_, system_prompt_sha256 = digest::digest(llm$system_prompt, algo = "sha256", serialize = FALSE),
                    calls = do.call(rbind, lapply(calls, as.data.frame)))
   new_extraction(doc, schema, fr$records, fr$evidence,
@@ -385,12 +387,37 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
     cl <- doc$cells[doc$cells$table_id %in% bid, , drop = FALSE]
     hit <- which(squash(cl$text) == squash(quote))
     if (!length(hit)) hit <- which(nzchar(cl$text) & vapply(cl$text, function(t) grepl(squash(quote), squash(t), fixed = TRUE), logical(1)))
+    # the cell must sit in the row and column the model named: its row
+    # label holds the outcome and its column header the arm
+    ctx <- function(h) cell_context(cl, cl$cell_id[h])
+    want <- c(outcome = g("outcome"), arm = g("arm"))
+    fits <- function(h) {
+      z <- ctx(h)
+      ok_o <- is.na(want[["outcome"]]) || grepl(squash(tolower(want[["outcome"]])), squash(tolower(z$row)), fixed = TRUE)
+      ok_a <- is.na(want[["arm"]]) || grepl(squash(tolower(want[["arm"]])), squash(tolower(z$col)), fixed = TRUE)
+      ok_o && ok_a
+    }
+    if (length(hit) && any(!is.na(want))) {
+      good <- hit[vapply(hit, fits, logical(1))]
+      if (!length(good)) {
+        status <- "unsupported"
+        notes <- c(notes, "no cell with this text lies in the stated row and column")
+      }
+      hit <- good
+    }
     if (!length(hit)) {
-      status <- "unsupported"
-      notes <- c(notes, "quote is not the text of a cell of the cited table")
+      if (status != "unsupported") {
+        status <- "unsupported"
+        notes <- c(notes, "quote is not the text of a cell of the cited table")
+      }
     } else {
+      if (length(hit) > 1L) {
+        status <- "ambiguous"
+        notes <- c(notes, "several cells of the cited table hold this text")
+      }
       cid <- cl$cell_id[hit[1]]
-      src_text <- paste(cl$text, collapse = " ")
+      z <- ctx(hit[1])
+      src_text <- paste(z$row, z$col, sc_table_caption(doc, bid) %||% "", cl$text[hit[1]])
       ev <- add_evidence(col, cell_id = cid, char_start = 1L, char_end = nchar(cl$text[hit[1]]),
                          value_text = cl$text[hit[1]], method = "llm_quote")
     }
@@ -409,15 +436,34 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
                          method = "llm_quote")
     }
   }
-  if (status == "reported" && !is.na(value)) {
+  if (status %in% c("reported", "ambiguous") && !is.na(value)) {
     if (is_num) {
-      # the value must be one of the complete numbers written in the quote
-      toks <- regmatches(quote, gregexpr(num_re, quote, perl = TRUE))[[1]]
+      # the value must be one of the complete numbers written in the quote,
+      # and one whose role there fits the field: the 95 of "95% CI" is a
+      # confidence level, never a count or an estimate
+      m <- gregexpr(num_re, quote, perl = TRUE)[[1]]
+      toks <- regmatches(quote, list(m))[[1]]
       vn <- as_num(value)
-      if (is.na(vn) || !any(abs(as_num(toks) - vn) < 1e-12 * max(1, abs(vn)), na.rm = TRUE)) {
+      same <- which(!is.na(as_num(toks)) & abs(as_num(toks) - vn) < 1e-12 * max(1, abs(vn)))
+      roles <- vapply(same, function(k) number_role(quote, m[k], attr(m, "match.length")[k]), "")
+      fits <- roles %in% c("plain", g("statistic") %|NA|% "plain") | (roles == "ci_level" & field %in% "ci_level")
+      if (is.na(vn) || !length(same)) {
         status <- "unsupported"
         notes <- c(notes, "numeric value is not a number written in the quote")
+      } else if (!any(fits)) {
+        status <- "unsupported"
+        notes <- c(notes, paste0("the number is a ", roles[1], " in the quote, not this field"))
+      } else if (fdef$type == "integer" && abs(vn - round(vn)) > 1e-9) {
+        status <- "unsupported"
+        notes <- c(notes, "integer field holds a value that is not a whole number")
+      } else if (field %in% c("randomized_n", "analyzed_n", "arm_n") &&
+                 !grepl("(?i)patients|participants|subjects|women|men|adults|children|infants|people|persons|individuals|volunteers|randomi[sz]|enrolled|allocated|assigned|analy[sz]ed|\\bn\\s*=", quote, perl = TRUE)) {
+        status <- "unsupported"
+        notes <- c(notes, "the quote does not say that this number counts participants")
       }
+    } else if (fdef$type == "logical" && !tolower(value) %in% c("true", "false", "yes", "no")) {
+      status <- "unsupported"
+      notes <- c(notes, "logical field holds a value that is not true or false")
     } else if (fdef$type == "categorical" && !is.null(fdef$vocabulary)) {
       if (!value %in% names(fdef$vocabulary)) {
         notes <- c(notes, "value outside the field vocabulary")
@@ -433,12 +479,31 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
   }
   # context the model attached must be written in the cited passage
   if (status == "reported" && !is.na(src_text)) {
-    for (k in c("arm", "comparator", "outcome", "timepoint", "analysis_set")) {
+    st_low <- squash(tolower(src_text))
+    for (k in c("arm", "comparator", "outcome", "timepoint", "analysis_set", "population", "unit")) {
       v <- g(k)
-      if (!is.na(v) && !grepl(squash(tolower(v)), squash(tolower(src_text)), fixed = TRUE)) {
+      if (!is.na(v) && v != "%" && !grepl(squash(tolower(v)), st_low, fixed = TRUE)) {
         notes <- c(notes, paste0(k, " '", v, "' is not written in the cited passage"))
         status <- "ambiguous"
       }
+    }
+    # the effect measure, interval level and adjustment must agree with
+    # the passage
+    em <- g("effect_measure")
+    found <- find_measures(src_text)$measure
+    if (!is.na(em) && length(found) && !em %in% found) {
+      notes <- c(notes, paste0("effect measure '", em, "' differs from the passage (", paste(unique(found), collapse = ", "), ")"))
+      status <- "ambiguous"
+    }
+    lv <- g("ci_level")
+    if (!is.na(lv) && !grepl(paste0("\\b", regex_escape(sub("%", "", lv)), "\\s*%\\s*(?:CI|CrI|confidence|credible)"), src_text, perl = TRUE)) {
+      notes <- c(notes, paste0("interval level ", lv, " is not written in the passage"))
+      status <- "ambiguous"
+    }
+    ad <- tolower(g("adjusted"))
+    if (ad %in% c("true", "yes", "adjusted") && !grepl("(?i)adjust", src_text, perl = TRUE)) {
+      notes <- c(notes, "the passage does not say the estimate is adjusted")
+      status <- "ambiguous"
     }
   }
   num <- if (is_num) as_num(value) else NA_real_
@@ -458,12 +523,30 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
   add_record(col, field %|NA|% "unknown", value, statistic = g("statistic"), value_num = num,
              status = status, data_origin = "model_inferred", evidence_id = ev, method = "llm",
              arm = g("arm"), comparator = g("comparator"), outcome = g("outcome"),
-             timepoint = g("timepoint"), analysis_set = g("analysis_set"), unit = g("unit"),
+             timepoint = g("timepoint"), analysis_set = g("analysis_set"), population = g("population"), unit = g("unit"),
              effect_measure = g("effect_measure"),
              ci_level = if (is.finite(lvl) && lvl > 0 && lvl < 100) lvl else NA_real_,
              adjusted = if (adj %in% c("true", "yes", "adjusted")) TRUE else if (adj %in% c("false", "no", "unadjusted")) FALSE else NA,
              observation_id = obs, binding = "model_output",
              notes = if (length(notes)) paste(notes, collapse = "; ") else NA_character_)
+}
+
+# The role of a number in its text: a confidence level ("95% CI"), a
+# p-value ("p = 0.04"), or a plain value.
+number_role <- function(text, start, len) {
+  after <- substr(text, start + len, start + len + 25L)
+  before <- substr(text, max(1L, start - 12L), start - 1L)
+  if (grepl("(?i)^\\s*%\\s*(?:CI|CrI|confidence|credible|prediction|PI)\\b", after, perl = TRUE)) return("ci_level")
+  if (grepl("(?i)\\bp\\s*(?:value\\s*)?[=<>\u2264\u2265]\\s*$", before, perl = TRUE)) return("p_value")
+  "plain"
+}
+
+# Row label and column header of a table cell.
+cell_context <- function(cells, cell_id) {
+  c0 <- cells[cells$cell_id == cell_id, , drop = FALSE]
+  row_lab <- cells$text[cells$row == c0$row & cells$col == 1L]
+  hdr <- cells[cells$is_header & cells$col <= c0$col & cells$col + cells$col_span - 1L >= c0$col, , drop = FALSE]
+  list(row = paste(row_lab, collapse = " "), col = paste(hdr$text, collapse = " "))
 }
 
 # Structured output when the provider supports it; otherwise plain JSON.

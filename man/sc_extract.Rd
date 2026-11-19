@@ -54,7 +54,9 @@ with status \code{"unsupported"}. See \code{\link[=sc_llm_engine]{sc_llm_engine(
 
 Statuses: \code{reported} (found as stated), \code{missing} (the source marks the
 value as missing, for example with a dash), \code{not_reported} (expected but
-absent: a required field or an empty table cell), \code{ambiguous} (found but
+absent: a required field or an empty table cell), \code{not_assessed} (not
+found, but part of the text was never assessed because a model answer
+could not be read), \code{ambiguous} (found but
 its meaning is not stated, such as a value after a plus-minus sign
 without SD or SE), \code{unsupported} (model output without verifiable
 evidence). Data origins: \code{reported}, \code{derived} (\code{\link[=sc_derive]{sc_derive()}}),

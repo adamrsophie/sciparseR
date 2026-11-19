@@ -17,7 +17,9 @@ the location of its evidence.
 \description{
 Lists the records that need human attention, most important first:
 validation failures, conflicts, ambiguous or unsupported values,
-missing required fields and estimates without a bound context.
+missing required fields, estimates without a bound context, and values
+whose \code{source_quality} flags a weak source (\code{"ocr"},
+\code{"ocr_low_confidence"}, \code{"table_possible"}).
 }
 \examples{
 doc <- sc_parse(system.file("extdata", "contradictory.pdf", package = "sciparseR"),

@@ -14,7 +14,9 @@
 #'
 #' Statuses: `reported` (found as stated), `missing` (the source marks the
 #' value as missing, for example with a dash), `not_reported` (expected but
-#' absent: a required field or an empty table cell), `ambiguous` (found but
+#' absent: a required field or an empty table cell), `not_assessed` (not
+#' found, but part of the text was never assessed because a model answer
+#' could not be read), `ambiguous` (found but
 #' its meaning is not stated, such as a value after a plus-minus sign
 #' without SD or SE), `unsupported` (model output without verifiable
 #' evidence). Data origins: `reported`, `derived` ([sc_derive()]),
@@ -81,16 +83,20 @@ table_arms <- function(doc) {
   unique(out)
 }
 
-add_not_reported <- function(records, schema, doc, engine) {
+add_not_reported <- function(records, schema, doc, engine, complete = TRUE) {
   have <- unique(records$field)
   miss <- Filter(function(f) f$required && !f$name %in% have, schema$fields)
   if (!length(miss)) return(records)
+  # when part of the text was never assessed (a model answer that could not
+  # be read), an absent field is not known to be absent
   extra <- as_entity(list(
-    field = vapply(miss, function(f) f$name, character(1)), status = "not_reported",
+    field = vapply(miss, function(f) f$name, character(1)),
+    status = if (complete) "not_reported" else "not_assessed",
     data_origin = if (engine == "llm") "model_inferred" else "reported",
     method = paste0(engine, ":required_field_check"), engine = engine,
     doc_id = doc$doc_id, schema = schema$name,
-    notes = "required field: no supporting text found"), "records")
+    notes = if (complete) "required field: no supporting text found" else
+      "required field not found, but part of the text was not assessed (a model answer could not be read)"), "records")
   out <- rbind(records, extra)
   out$record_id <- sprintf("rec-%05d", seq_len(nrow(out)))
   out

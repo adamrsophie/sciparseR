@@ -437,10 +437,10 @@ sc_review_queue <- function(x) {
                                                     reason = paste0(v$rule[i], ": ", v$message[i]), stringsAsFactors = FALSE)
     }
   }
-  st <- r[r$status %in% c("ambiguous", "unsupported", "not_reported", "missing", "inconsistent"), , drop = FALSE]
+  st <- r[r$status %in% c("ambiguous", "unsupported", "not_reported", "not_assessed", "missing", "inconsistent"), , drop = FALSE]
   for (i in seq_len(nrow(st))) {
     reasons[[length(reasons) + 1L]] <- data.frame(record_id = st$record_id[i],
-                                                  priority = if (st$status[i] %in% c("unsupported", "inconsistent")) 1L else 3L,
+                                                  priority = if (st$status[i] %in% c("unsupported", "inconsistent", "not_assessed")) 1L else 3L,
                                                   reason = paste0("status ", st$status[i], if (!is.na(st$notes[i])) paste0(": ", st$notes[i]) else ""),
                                                   stringsAsFactors = FALSE)
   }
