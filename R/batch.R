@@ -40,7 +40,7 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
       key <- cache_key(p, config)
       cf <- if (!is.null(cache_dir)) file.path(cache_dir, paste0(key, ".rds")) else NULL
       # an unreadable cache entry is parsed again and replaced
-      d <- if (!is.null(cf) && file.exists(cf)) tryCatch(readRDS(cf), error = function(e) NULL) else NULL
+      d <- if (!is.null(cf) && file.exists(cf) && !dir.exists(cf)) tryCatch(readRDS(cf), error = function(e) NULL) else NULL
       if (!inherits(d, "sc_document")) d <- NULL
       if (!is.null(d)) {
         # identical bytes may live at another path: point to this file
@@ -49,12 +49,20 @@ sc_parse_batch <- function(paths, config = sc_config(), cache_dir = NULL, worker
         list(doc = d, cached = TRUE, error = NA_character_, cache_file = cf)
       } else {
         d <- sc_parse(p, config = config)
+        stored <- NA_character_
         if (!is.null(cf)) {
-          tmp <- paste0(cf, ".tmp")
-          saveRDS(d, tmp)
-          file.rename(tmp, cf)
+          # a temporary file of its own per writer, then one rename: a
+          # reader never sees a half written entry, and a failed rename is
+          # not reported as cached
+          tmp <- tempfile(paste0(key, "-"), tmpdir = cache_dir, fileext = ".tmp")
+          ok <- tryCatch({
+            saveRDS(d, tmp)
+            isTRUE(file.rename(tmp, cf))
+          }, error = function(e) FALSE, warning = function(w) FALSE)
+          if (ok) stored <- cf else unlink(tmp)
+          if (!ok && !isTRUE(keep)) stop("could not write the cache entry ", cf)
         }
-        list(doc = d, cached = FALSE, error = NA_character_, cache_file = cf %||% NA_character_)
+        list(doc = d, cached = FALSE, error = NA_character_, cache_file = stored)
       }
     }, error = function(e) list(doc = NULL, cached = FALSE, error = conditionMessage(e), cache_file = NA_character_))
     res$doc_id <- if (is.null(res$doc)) NA_character_ else res$doc$doc_id
@@ -96,7 +104,30 @@ cache_key <- function(path, config) {
   ocr <- !identical(config$ocr, "never") && is_installed("tesseract")
   substr(hash_object(list(sha256_file(path), config_hash(config), pkg_version("sciparseR"),
                           sc_schema_version, pkg_version("pdftools"), pkg_version("xml2"),
-                          if (ocr) pkg_version("tesseract") else NA_character_)), 1L, 32L)
+                          if (ocr) pkg_version("tesseract") else NA_character_,
+                          native_versions(ocr))), 1L, 32L)
+}
+
+# Versions of the native libraries and OCR data behind the R packages:
+# Poppler, libxml2, Tesseract and its language data.
+native_versions <- function(ocr = FALSE) {
+  safe <- function(expr) {
+    v <- tryCatch(as.character(expr), error = function(e) NA_character_)
+    if (length(v)) v[1] else NA_character_
+  }
+  out <- c(poppler = safe(pdftools::poppler_config()$version),
+           libxml2 = safe(utils::getFromNamespace("libxml2_version", "xml2")()))
+  if (ocr) {
+    info <- tryCatch(tesseract::tesseract_info(), error = function(e) NULL)
+    out["tesseract"] <- safe(info$version)
+    out["tessdata"] <- safe(paste(info$available, collapse = ","))
+    tdir <- safe(info$datapath)
+    if (!is.na(tdir) && dir.exists(tdir)) {
+      f <- list.files(tdir, pattern = "\\.traineddata$", full.names = TRUE)
+      out["tessdata_size"] <- paste(basename(f), file.size(f), collapse = ",")
+    }
+  }
+  out
 }
 
 #' Inspect or clear a parse cache

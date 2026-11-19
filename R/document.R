@@ -225,6 +225,12 @@ sc_find <- function(doc, pattern, fixed = FALSE, ignore_case = FALSE,
   check_document(doc)
   check_string(pattern, "pattern")
   where <- match.arg(where, several.ok = TRUE)
+  # base R ignores ignore.case for fixed strings: escape and match as a
+  # regular expression instead
+  if (fixed && ignore_case) {
+    pattern <- regex_escape(pattern)
+    fixed <- FALSE
+  }
   res <- list()
   scan <- function(text, ids, kind, pages, xp) {
     for (i in seq_along(text)) {
@@ -259,6 +265,15 @@ sc_find <- function(doc, pattern, fixed = FALSE, ignore_case = FALSE,
   out
 }
 
+# Evidence names the document it came from; locating it in another one
+# would give the wrong page and checksum.
+check_evidence_document <- function(doc, ev) {
+  bad_sha <- !is.null(ev$sha256) && any(!is.na(ev$sha256) & ev$sha256 != doc$source$sha256)
+  bad_id <- !is.null(ev$doc_id) && any(!is.na(ev$doc_id) & ev$doc_id != doc$doc_id)
+  if (bad_sha || bad_id) abort("The evidence comes from a different document (doc_id or sha256 does not match).")
+  invisible(TRUE)
+}
+
 context_window <- function(text, start, len, width = 40L) {
   a <- max(1L, start - width)
   b <- min(nchar(text), start + len - 1L + width)
@@ -284,9 +299,10 @@ sc_source <- function(doc, id) {
   check_document(doc)
   if (is.data.frame(id)) {
     ev <- id
+    check_evidence_document(doc, ev)
     return(data.frame(element_id = ev$evidence_id, element_type = "evidence",
                       page = ev$page, x0 = ev$x0, y0 = ev$y0, x1 = ev$x1, y1 = ev$y1,
-                      text = ev$text, xpath = ev$xpath, sha256 = doc$source$sha256,
+                      text = ev$text, xpath = ev$xpath, sha256 = ev$sha256 %||% rep(doc$source$sha256, nrow(ev)),
                       stringsAsFactors = FALSE))
   }
   keys <- list(blocks = "block_id", spans = "span_id", lines = "line_id", cells = "cell_id",

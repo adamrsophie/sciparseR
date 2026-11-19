@@ -13,7 +13,11 @@ sc_read_json(file)
 An \code{sc_document} or \code{sc_extraction}.
 }
 \description{
-Read a sciparseR JSON export
+Every entity array must be present. Identifiers must be unique,
+references between tables (blocks to sections, cells to tables,
+records to evidence, corrections to the records they supersede) must
+resolve, and section parents and supersedes chains must not form cycles;
+otherwise the file is refused.
 }
 \examples{
 doc <- sc_parse(system.file("extdata", "unicode.pdf", package = "sciparseR"))

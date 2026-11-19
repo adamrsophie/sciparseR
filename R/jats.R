@@ -159,30 +159,54 @@ parse_jats <- function(path, cfg, log) {
     sid <- new_section(abs, "Abstract", 1L, NA_character_, "abstract")
     hb <- add_block("heading", "Abstract", abs, sid)
     sections[[length(sections)]]$block_id <- hb
-    for (p in xml2::xml_find_all(abs, ".//p")) add_block("paragraph", node_text(p), p, sid)
+    # a structured abstract keeps its subsections ("Methods", "Results")
+    # as child sections of the abstract
+    abs_sec <- function(node, parent, level) {
+      for (k in xml2::xml_children(node)) {
+        nm <- xml2::xml_name(k)
+        if (nm == "sec") {
+          ttl <- xtext(k, "./title")
+          sub_id <- new_section(k, ttl %|NA|% NA_character_, level, parent, "abstract")
+          if (!is.na(ttl)) sections[[length(sections)]]$block_id <<- add_block("heading", ttl, xml2::xml_find_first(k, "./title"), sub_id)
+          abs_sec(k, sub_id, level + 1L)
+        } else if (nm == "p") {
+          add_block("paragraph", node_text(k), k, parent)
+        }
+      }
+    }
+    abs_sec(abs, sid, 2L)
+    # an abstract with bare text and no paragraph keeps that text
+    if (!length(xml2::xml_find_all(abs, ".//p")) && nzchar(node_text(abs))) add_block("paragraph", node_text(abs), abs, sid)
   }
   body <- xml2::xml_find_first(art, "./body")
   q <- paste(".//sec", ".//p[not(ancestor::caption) and not(ancestor::table-wrap-foot) and not(ancestor::fn) and not(ancestor::table) and not(ancestor::supplementary-material)]",
              ".//table-wrap", ".//fig", ".//disp-formula", ".//supplementary-material", sep = " | ")
-  nodes <- if (inherits(body, "xml_missing")) list() else xml2::xml_find_all(body, q)
+  nodes <- if (inherits(body, "xml_missing")) list() else as.list(xml2::xml_find_all(body, q))
+  # appendices are sections of the back matter; tables and figures in a
+  # floats-group belong to no section
+  app_q <- paste("./back//app", "./back//app//sec", "./back//app//p[not(ancestor::caption) and not(ancestor::table-wrap-foot) and not(ancestor::fn) and not(ancestor::table) and not(ancestor::supplementary-material)]",
+                 "./back//app//table-wrap", "./back//app//fig", "./back//app//disp-formula", sep = " | ")
+  nodes <- c(nodes, as.list(xml2::xml_find_all(art, app_q)),
+             as.list(xml2::xml_find_all(art, "./floats-group/table-wrap | ./floats-group/fig | ./floats-group/disp-formula")))
   # supplementary material listed in the back matter
   back_supp <- xml2::xml_find_all(art, "./back//supplementary-material")
   if (length(back_supp)) nodes <- c(as.list(nodes), as.list(back_supp))
   sec_ids <- character()
   sec_paths <- character()
   owner_section <- function(node) {
-    anc <- xml2::xml_find_all(node, "ancestor::sec")
+    anc <- xml2::xml_find_all(node, "ancestor::*[self::sec or self::app]")
     if (!length(anc)) return(NA_character_)
     p <- xml2::xml_path(anc[[length(anc)]])
     sec_ids[match(p, sec_paths)]
   }
   for (node in nodes) {
     nm <- xml2::xml_name(node)
-    if (nm == "sec") {
+    if (nm %in% c("sec", "app")) {
       title <- xtext(node, "./title")
-      level <- length(xml2::xml_find_all(node, "ancestor::sec")) + 1L
+      level <- length(xml2::xml_find_all(node, "ancestor::*[self::sec or self::app]")) + 1L
       parent <- owner_section(node)
-      lab <- section_label(title %||% "")
+      lab <- section_label(title %|NA|% "")
+      if (nm == "app" && is.na(lab)) lab <- "appendix"
       st <- xml2::xml_attr(node, "sec-type")
       if (is.na(lab) && !is.na(st)) lab <- section_label(gsub("[|-]", " ", st))
       if (is.na(lab) && !is.na(parent)) {
@@ -302,7 +326,7 @@ jats_metadata <- function(art) {
   authors <- vapply(xml2::xml_find_all(am, "./contrib-group/contrib[@contrib-type='author']"), function(cn) {
     nm <- xml2::xml_find_first(cn, "./name")
     if (inherits(nm, "xml_missing")) return(xtext(cn, ".//collab|.//string-name"))
-    normalize_text(paste(xtext(nm, "./given-names") %||% "", xtext(nm, "./surname") %||% ""))
+    normalize_text(paste(xtext(nm, "./given-names") %|NA|% "", xtext(nm, "./surname") %|NA|% ""))
   }, character(1))
   yr <- xtext(am, "./pub-date[@pub-type='epub' or @date-type='pub']/year")
   if (is.na(yr)) yr <- xtext(am, "./pub-date/year")
@@ -316,7 +340,7 @@ jats_metadata <- function(art) {
        year = suppressWarnings(as.integer(yr)),
        abstract = if (inherits(ab, "xml_missing")) NA_character_ else node_text(ab),
        keywords = vapply(xml2::xml_find_all(am, ".//kwd-group/kwd"), function(k) normalize_text(xml2::xml_text(k)), character(1)),
-       license = if (inherits(lic, "xml_missing")) NA_character_ else (xml_href(lic) %||% xtext(lic)),
+       license = if (inherits(lic, "xml_missing")) NA_character_ else (xml_href(lic) %|NA|% xtext(lic)),
        license_text = if (inherits(lic, "xml_missing")) NA_character_ else xtext(lic),
        n_pages = NA_integer_,
        sources = list(title = src, authors = src, doi = src, pmid = src, pmcid = src,
@@ -421,10 +445,15 @@ jats_references <- function(art) {
   if (!length(refs)) return(empty_entity("references"))
   rows <- lapply(seq_along(refs), function(i) {
     r <- refs[[i]]
-    cit <- xml2::xml_find_first(r, "./element-citation|./mixed-citation|./citation|./nlm-citation")
+    # fields from an element-citation when there is one; the printed text
+    # from a mixed-citation when there is one
+    cit <- xml2::xml_find_first(r, "./element-citation")
+    if (inherits(cit, "xml_missing")) cit <- xml2::xml_find_first(r, "./mixed-citation|./citation|./nlm-citation")
     if (inherits(cit, "xml_missing")) cit <- r
+    mixed <- xml2::xml_find_first(r, "./mixed-citation")
+    txt_node <- if (inherits(mixed, "xml_missing")) cit else mixed
     nm <- xml2::xml_find_all(cit, ".//person-group[@person-group-type='author']/name | .//person-group[not(@person-group-type)]/name | ./name | .//string-name")
-    au <- vapply(nm, function(n) normalize_text(paste(xtext(n, "./surname") %||% xtext(n), xtext(n, "./given-names") %||% "")), character(1))
+    au <- vapply(nm, function(n) normalize_text(paste(xtext(n, "./surname") %|NA|% xtext(n), xtext(n, "./given-names") %|NA|% "")), character(1))
     pid <- function(type) {
       v <- xtext(cit, sprintf(".//pub-id[@pub-id-type='%s']", type))
       if (type == "pmcid" && is.na(v)) v <- xtext(cit, ".//pub-id[@pub-id-type='pmc']")
@@ -435,7 +464,7 @@ jats_references <- function(art) {
     el <- xtext(cit, ".//elocation-id")
     pm <- pid("pmcid")
     if (!is.na(pm) && !grepl("^PMC", pm)) pm <- paste0("PMC", pm)
-    txt <- normalize_text(xml2::xml_text(cit))
+    txt <- normalize_text(xml2::xml_text(txt_node))
     h <- parse_reference(txt)
     au <- if (length(au)) paste(au, collapse = ", ") else h$authors
     method <- if (length(nm)) "jats_markup" else "jats_markup+heuristic"
@@ -628,14 +657,33 @@ expand_entities <- function(txt) {
     val <- sub("^<!ENTITY\\s+[^\\s]+\\s+[\"'](.*)[\"']\\s*>$", "\\1", decl, perl = TRUE)
     ents[nm] <- val
   }
-  for (nm in names(ents)) {
-    rep <- if (nchar(ents[[nm]]) == 1L) sprintf("&#%d;", utf8ToInt(ents[[nm]])) else
-      paste(sprintf("&#%d;", utf8ToInt(ents[[nm]])), collapse = "")
-    txt <- gsub(paste0("&", nm, ";"), rep, txt, fixed = TRUE)
+  # CDATA sections and comments are literal text: entities are expanded
+  # only between them
+  prot <- gregexpr("(?s)<!\\[CDATA\\[.*?\\]\\]>|<!--.*?-->", txt, perl = TRUE)[[1]]
+  if (prot[1] > 0) {
+    st <- as.integer(prot)
+    en <- st + attr(prot, "match.length") - 1L
+    gap_st <- c(1L, en + 1L)
+    gap_en <- c(st - 1L, nchar(txt))
+    gaps <- substring(txt, gap_st, gap_en)
+    kept <- substring(txt, st, en)
+  } else {
+    gaps <- txt
+    kept <- character()
   }
-  # any other named entity is unknown: mark it visibly instead of failing
-  # or silently dropping it
-  unk <- regmatches(txt, gregexpr("&(?!(?:lt|gt|amp|quot|apos);)[A-Za-z][A-Za-z0-9._-]*;", txt, perl = TRUE))[[1]]
-  if (length(unk)) txt <- gsub("&(?!(?:lt|gt|amp|quot|apos);)[A-Za-z][A-Za-z0-9._-]*;", "&#65533;", txt, perl = TRUE)
-  list(text = txt, unknown = unique(unk))
+  unk <- character()
+  for (g in seq_along(gaps)) {
+    for (nm in names(ents)) {
+      rep <- paste(sprintf("&#%d;", utf8ToInt(ents[[nm]])), collapse = "")
+      gaps[g] <- gsub(paste0("&", nm, ";"), rep, gaps[g], fixed = TRUE)
+    }
+    # any other named entity is unknown: mark it visibly instead of failing
+    # or silently dropping it
+    u <- regmatches(gaps[g], gregexpr("&(?!(?:lt|gt|amp|quot|apos);)[A-Za-z][A-Za-z0-9._-]*;", gaps[g], perl = TRUE))[[1]]
+    if (length(u)) gaps[g] <- gsub("&(?!(?:lt|gt|amp|quot|apos);)[A-Za-z][A-Za-z0-9._-]*;", "&#65533;", gaps[g], perl = TRUE)
+    unk <- c(unk, u)
+  }
+  out <- gaps[1]
+  for (k in seq_along(kept)) out <- paste0(out, kept[k], gaps[k + 1L])
+  list(text = out, unknown = unique(unk))
 }

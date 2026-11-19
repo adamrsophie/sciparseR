@@ -260,6 +260,7 @@ sc_highlight <- function(doc, x, dir = tempdir(), dpi = 100, color = "#d7263d", 
   if (inherits(x, "sc_extraction") && !identical(x$doc_id %||% doc$doc_id, doc$doc_id)) {
     abort("The extraction was made from a different document.")
   }
+  if (is.data.frame(x)) check_evidence_document(doc, x)
   loc <- if (inherits(x, "sc_extraction")) x$evidence else if (is.data.frame(x)) x else sc_source(doc, x)
   loc <- loc[!is.na(loc$page) & !is.na(loc$x0), , drop = FALSE]
   if (!nrow(loc)) abort("No evidence with a bounding box to highlight.")
