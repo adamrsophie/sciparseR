@@ -139,3 +139,34 @@ test_that("no standard error is read from a credible interval", {
   y <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.70 (95% CI 0.40 to 0.95)."), "numerical_results")
   expect_true("se_log" %in% sc_derive(y, "se_log_ratio")$records$statistic)
 })
+
+test_that("negated design statements are not positive classifications", {
+  rec <- function(t, s = "study_design") sc_extract(jats_text("", methods = t), s)$records
+  a <- rec("This study was not randomized and was not double-blind.")
+  expect_false(any(a$value %in% c("randomized_controlled_trial", "double_blind")))
+  b <- rec("This was a non-randomized, open-label study.")
+  expect_false("randomized_controlled_trial" %in% b$value)
+  expect_true("open_label" %in% b$value)
+  c1 <- rec("We did not conduct a randomized trial; this was a prospective cohort study.")
+  expect_equal(c1$value[c1$field == "study_design"], "cohort")
+  # positive control
+  d <- rec("This was a randomized, double-blind trial.")
+  expect_true(all(c("randomized_controlled_trial", "double_blind") %in% d$value))
+})
+
+test_that("custom categorical fields keep every hit and the source token", {
+  f <- sc_field("setting", "Care setting", "categorical",
+                vocabulary = c(primary = "\\bprimary care\\b|\\bgeneral practice\\b", hospital = "\\bhospitals?\\b"),
+                multiple = TRUE)
+  x <- sc_extract(jats_text("", methods = "Patients were recruited in general practice and in two hospitals."), sc_schema(fields = list(f)))
+  r <- x$records[x$records$field == "setting", ]
+  expect_setequal(r$value, c("primary", "hospital"))
+  ev <- x$evidence$value_text[match(r$evidence_id, x$evidence$evidence_id)]
+  expect_setequal(ev, c("general practice", "hospitals"))
+  # a pattern capture is kept verbatim in the evidence
+  g <- sc_field("setting", "Care setting", "categorical",
+                vocabulary = c(primary = "general practice"), pattern = "recruited in (general practice)")
+  y <- sc_extract(jats_text("", methods = "Patients were recruited in general practice."), sc_schema(fields = list(g)))
+  expect_equal(y$records$value[y$records$field == "setting"], "primary")
+  expect_equal(y$evidence$value_text[match(y$records$evidence_id[1], y$evidence$evidence_id)], "general practice")
+})

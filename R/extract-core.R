@@ -166,6 +166,13 @@ match_vocab <- function(text, vocab) {
   data.frame(term = hits, start = pos, length = len, stringsAsFactors = FALSE)
 }
 
+# A vocabulary hit negated by the words right before it: "not randomized",
+# "was not a randomized trial", "non-randomized", "neither blinded nor".
+is_negated <- function(text, start) {
+  before <- substr(text, max(1L, start - 40L), start - 1L)
+  grepl("(?i)(?:\\b(?:not|no|never|neither|nor|without)\\s+(?:[a-z]+\\s+){0,2}|\\bnon-?\\s?|\\bun-)$", before, perl = TRUE)
+}
+
 timepoint_re <- paste0(
   "\\b(?:at|after|by|through|over|to)\\s+(?:week|month|year|day)\\s+[0-9]+\\b|",
   # "to 65 years" is left out: it is usually the end of an age range

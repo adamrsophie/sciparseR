@@ -15,6 +15,8 @@ rule_design <- function(col, units, fields) {
       if (!nrow(v)) next
       ss <- split_sentences(u$text[i])
       for (k in seq_len(nrow(v))) {
+        # "this study was not randomized" says nothing positive
+        if (is_negated(u$text[i], v$start[k])) next
         si <- max(which(ss$start <= v$start[k]))
         before <- tolower(substr(u$text[i], ss$start[si], v$start[k] - 1L))
         near <- substring(before, max(1L, nchar(before) - 60L))
@@ -57,7 +59,7 @@ rule_design <- function(col, units, fields) {
     for (i in seq_len(nrow(u))) {
       v <- match_vocab(u$text[i], feature_vocabulary)
       for (k in seq_len(nrow(v))) {
-        if (v$term[k] %in% seen) next
+        if (v$term[k] %in% seen || is_negated(u$text[i], v$start[k])) next
         seen <- c(seen, v$term[k])
         ev <- add_evidence(col, block_id = u$block_id[i], char_start = v$start[k],
                            char_end = v$start[k] + v$length[k] - 1L,
@@ -301,11 +303,12 @@ rule_user_field <- function(col, units, field) {
         l0 <- cl[j, 1]
       }
       v <- substr(txt, s0, s0 + l0 - 1L)
+      # the evidence keeps the source token; the record the category
+      ev <- add_evidence(col, block_id = u$block_id[i], char_start = s0, char_end = s0 + l0 - 1L, value_text = v)
       if (field$type == "categorical") {
         mv <- match_vocab(v, field$vocabulary)
         v <- if (nrow(mv)) mv$term[1] else v
       }
-      ev <- add_evidence(col, block_id = u$block_id[i], char_start = s0, char_end = s0 + l0 - 1L, value_text = v)
       add_record(col, field$name, v,
                  value_num = if (field$type %in% c("numeric", "integer")) as_num(v) else NA_real_,
                  unit = field$unit %||% NA_character_, evidence_id = ev,
@@ -315,15 +318,20 @@ rule_user_field <- function(col, units, field) {
     }
   }
   if (!found && field$type == "categorical" && is.null(field$pattern)) {
+    seen <- character()
     for (i in seq_len(nrow(u))) {
       mv <- match_vocab(u$text[i], field$vocabulary)
-      if (!nrow(mv)) next
-      ev <- add_evidence(col, block_id = u$block_id[i], char_start = mv$start[1],
-                         char_end = mv$start[1] + mv$length[1] - 1L,
-                         value_text = substr(u$text[i], mv$start[1], mv$start[1] + mv$length[1] - 1L))
-      add_record(col, field$name, mv$term[1], evidence_id = ev, method = "rules:user_vocabulary")
-      found <- found + 1L
-      if (!field$multiple) break
+      mv <- mv[order(mv$start), , drop = FALSE]
+      for (k in seq_len(nrow(mv))) {
+        if (mv$term[k] %in% seen || is_negated(u$text[i], mv$start[k])) next
+        seen <- c(seen, mv$term[k])
+        ev <- add_evidence(col, block_id = u$block_id[i], char_start = mv$start[k],
+                           char_end = mv$start[k] + mv$length[k] - 1L,
+                           value_text = substr(u$text[i], mv$start[k], mv$start[k] + mv$length[k] - 1L))
+        add_record(col, field$name, mv$term[k], evidence_id = ev, method = "rules:user_vocabulary")
+        found <- found + 1L
+        if (!field$multiple) return(invisible(found))
+      }
     }
   }
   invisible(found)
