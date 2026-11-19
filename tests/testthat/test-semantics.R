@@ -53,3 +53,43 @@ test_that("PDF powers and unit exponents are not footnote markers", {
   t <- sc_parse(fixture("trial_tables.pdf"))
   expect_true("a" %in% t$cells$markers)
 })
+
+test_that("arms that differ only by dose stay separate", {
+  m <- "150 patients were randomized to Drug A 5 mg (n = 50), Drug A 10 mg (n = 50), or placebo (n = 50)."
+  d <- jats_text("Death occurred in 5 of 50 patients in the Drug A 10 mg group and 9 of 50 in the placebo group.", methods = m)
+  x <- sc_validate(sc_extract(d, "clinical_trial"))
+  r <- x$records
+  expect_setequal(r$value[r$field == "arms"], c("Drug A 5 mg", "Drug A 10 mg", "placebo"))
+  expect_equal(r$arm[r$field == "dose"], c("Drug A 5 mg", "Drug A 10 mg"))
+  expect_equal(r$arm[r$statistic %in% "events"], c("Drug A 10 mg", "placebo"))
+  v <- x$validation
+  expect_equal(v$result[v$rule == "arm_sizes_sum"], "pass")
+  # one dose per drug keeps the plain name
+  d2 <- jats_text("", methods = "Patients were randomized to Drug A 10 mg once daily (n = 50) or placebo (n = 50).")
+  r2 <- sc_extract(d2, "trial_details")$records
+  expect_setequal(r2$value[r2$field == "arms"], c("Drug A", "placebo"))
+})
+
+test_that("a comparison named in a table is kept in its direction", {
+  est <- function(h, cap = "Outcomes", m = "Patients were randomly assigned to receive Drug A or placebo.") {
+    d <- jats_text("", methods = m, extra = jats_table(h, list(c("Death, n (%)", "10 (10.0)", "20 (20.0)", "2.25 (1.20 to 4.22)")), caption = cap))
+    r <- sc_extract(d, "numerical_results")$records
+    r[r$statistic %in% "estimate", c("value_num", "arm", "comparator", "binding")]
+  }
+  a <- est(c("Outcome", "Drug A", "Placebo", "Odds ratio (Placebo versus Drug A), 95% CI"))
+  expect_equal(c(a$arm, a$comparator), c("placebo", "Drug A"))
+  expect_equal(a$value_num, 2.25)
+  expect_match(a$binding, "table_header_cue")
+  b <- est(c("Outcome", "Drug A", "Placebo", "OR (95% CI)"), cap = "Outcomes, placebo vs Drug A")
+  expect_equal(c(b$arm, b$comparator), c("placebo", "Drug A"))
+  # no cue: active versus control by convention, and said so
+  c1 <- est(c("Outcome", "Drug A", "Placebo", "Odds ratio (95% CI)"))
+  expect_equal(c(c1$arm, c1$comparator), c("Drug A", "placebo"))
+  expect_match(c1$binding, "control_arm_convention")
+  # two active arms and no cue: the direction is not guessed
+  m2 <- "Patients were randomly assigned to receive Drug A or Drug B."
+  e <- est(c("Outcome", "Drug A", "Drug B", "Odds ratio (95% CI)"), m = m2)
+  expect_true(is.na(e$arm) && is.na(e$comparator))
+  f <- est(c("Outcome", "Drug A", "Drug B", "Odds ratio, Drug B vs Drug A (95% CI)"), m = m2)
+  expect_equal(c(f$arm, f$comparator), c("Drug B", "Drug A"))
+})

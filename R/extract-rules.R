@@ -156,10 +156,19 @@ rule_methods <- function(col, units, fields) {
         parts <- split_arms(seg)
         pos <- cs
         roles <- character()
-        for (p in parts) {
+        # arms that share a name ("Drug A 5 mg" and "Drug A 10 mg") are
+        # told apart by their dose and schedule, which stay in the label
+        base <- vapply(parts, arm_name, "")
+        dose_of <- vapply(parts, function(p) {
+          d <- regmatches(p, regexpr(dose_re, p, perl = TRUE))
+          if (length(d)) d else ""
+        }, "")
+        same <- base %in% base[duplicated(tolower(base))] & nzchar(dose_of)
+        for (pi in seq_along(parts)) {
+          p <- parts[pi]
           ploc <- regexpr(p, substring(st, pos), fixed = TRUE)
           pstart <- if (ploc > 0) pos + ploc - 1L else NA_integer_
-          nm <- arm_name(p)
+          nm <- if (same[pi]) paste(base[pi], dose_of[pi]) else base[pi]
           if (!nzchar(nm)) next
           arms <- c(arms, nm)
           role <- if (grepl("(?i)placebo|control|usual care|standard (of )?care|sham|no treatment|vehicle", nm, perl = TRUE)) "comparator" else "intervention"

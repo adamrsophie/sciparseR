@@ -175,9 +175,43 @@ comparison_arms <- function(text, arms) {
     # a comparison cue that names no arm: the direction is not stated
     return(list(arm = NA_character_, comparator = NA_character_, bind = "comparison=no_direction_cue"))
   }
-  # "... in the Drug A group and ... in the placebo group (HR ...)": the
-  # conventional reading is first arm versus second arm
-  list(arm = found[1], comparator = found[2], bind = "comparison=arm_mention_order")
+  # no cue: an estimate of one active arm against one control arm is read
+  # as active versus control; any other pair stays unbound
+  convention_direction(found[1:2])
+}
+
+control_re <- "(?i)placebo|control|usual care|standard (of )?care|sham|no treatment|vehicle"
+
+# Active versus control when exactly one of two arms is a control arm.
+convention_direction <- function(two) {
+  ctl <- grepl(control_re, two, perl = TRUE)
+  if (length(two) == 2L && sum(ctl) == 1L) {
+    return(list(arm = two[!ctl], comparator = two[ctl], bind = "comparison=control_arm_convention"))
+  }
+  list(arm = NA_character_, comparator = NA_character_, bind = "comparison=unbound")
+}
+
+# An explicit comparison in a table header or caption ("Odds ratio
+# (placebo versus Drug A)", "Drug A vs placebo"): the arm named first is
+# the arm, the one after the cue the comparator. Returns NULL when none.
+explicit_comparison <- function(text, arms) {
+  if (is.na(text) || !length(arms)) return(NULL)
+  m <- regmatches(text, regexec("(?i)([A-Za-z][A-Za-z0-9 .+-]{0,40}?)\\s+(?:versus|vs\\.?|compared (?:with|to)|relative to)\\s+([A-Za-z][A-Za-z0-9 .+-]{0,40}?)(?=\\s*(?:[(),;:|]|$|\\b(?:95|90|99)))", text, perl = TRUE))[[1]]
+  if (length(m) < 3L) return(NULL)
+  pick <- function(z) {
+    z <- trimws(z)
+    for (k in seq_len(5L)) {
+      a <- match_arm(z, arms)
+      if (!is.na(a)) return(a)
+      z <- sub("^\\S+\\s*", "", z)
+      if (!nzchar(z)) break
+    }
+    NA_character_
+  }
+  a <- pick(m[2])
+  b <- pick(m[3])
+  if (is.na(a) || is.na(b) || identical(a, b)) return(NULL)
+  list(arm = a, comparator = b)
 }
 
 # SD or SE label of one plus-minus pair: written right after the pair,
@@ -577,7 +611,8 @@ rule_table_statistics <- function(col, doc, arms) {
     }
     arm_cols <- which(vapply(roles, function(r) r$role == "arm" && !identical(r$arm, "total"), logical(1)))
     arm_names <- unique(vapply(roles[arm_cols], function(r) r$arm, character(1)))
-    cmp <- if (length(arm_names) == 2L) arm_names else c(NA_character_, NA_character_)
+    cmp_conv <- if (length(arm_names) == 2L) convention_direction(arm_names) else list(arm = NA_character_, comparator = NA_character_, bind = "comparison=unbound")
+    cap_cmp <- explicit_comparison(caption, arm_aliases(arm_names))
     # arm sizes from headers, once per arm
     n_seen <- character()
     for (j in arm_cols) {
@@ -637,9 +672,26 @@ rule_table_statistics <- function(col, doc, arms) {
           base$arm <- r$arm
           bind <- c(bind, "arm=table_column_header")
         } else if (r$role %in% c("effect", "p")) {
-          base$arm <- cmp[1]
-          base$comparator <- cmp[2]
-          bind <- c(bind, if (!is.na(cmp[1])) "comparison=table_arm_column_order" else "comparison=unbound")
+          # the comparison named in the effect header, else in the caption,
+          # else active versus control
+          eff_j <- if (r$role == "p") {
+            left <- eff_cols[eff_cols < cc$col]
+            if (length(left)) max(left) else if (length(eff_cols) == 1L) eff_cols else NA_integer_
+          } else cc$col
+          hdr_cmp <- if (!is.na(eff_j)) explicit_comparison(hdr[eff_j], arm_aliases(arm_names)) else NULL
+          if (!is.null(hdr_cmp)) {
+            base$arm <- hdr_cmp$arm
+            base$comparator <- hdr_cmp$comparator
+            bind <- c(bind, "comparison=table_header_cue")
+          } else if (!is.null(cap_cmp)) {
+            base$arm <- cap_cmp$arm
+            base$comparator <- cap_cmp$comparator
+            bind <- c(bind, "comparison=table_caption_cue")
+          } else {
+            base$arm <- cmp_conv$arm
+            base$comparator <- cmp_conv$comparator
+            bind <- c(bind, cmp_conv$bind)
+          }
           if (r$role == "effect") {
             base$effect_measure <- r$measure
             base$ci_level <- r$ci_level
