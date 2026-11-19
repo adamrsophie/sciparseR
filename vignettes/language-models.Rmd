@@ -106,7 +106,15 @@ y$records[, c("field", "value", "status", "data_origin", "notes")]
 * "238" and the design are quoted and present in the block: `reported`.
 * "236" does not occur in its quote: `unsupported`.
 * The "sham" quote cites a block that was not sent: `unsupported`.
-* Required fields the model did not return are `not_reported`.
+* Required fields the model did not return are `not_reported`. When a
+  model answer could not be read, part of the text was never assessed, so
+  such fields are `not_assessed` instead and go to the review queue.
+* A number must play a role in its quote that fits the field: the 95 of
+  "95% CI" is an interval level, never an estimate or a sample size. A
+  table value must sit in the row and column the model named, and the
+  measure, interval level, unit, population and adjustment it attached
+  must agree with the passage; otherwise the value is `unsupported` or
+  `ambiguous`.
 * Every model value has `data_origin = "model_inferred"`.
 
 The evidence of verified values has offsets into the block text, so they

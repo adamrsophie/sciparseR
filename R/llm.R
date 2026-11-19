@@ -389,12 +389,18 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
     if (!length(hit)) hit <- which(nzchar(cl$text) & vapply(cl$text, function(t) grepl(squash(quote), squash(t), fixed = TRUE), logical(1)))
     # the cell must sit in the row and column the model named: its row
     # label holds the outcome and its column header the arm
+    # an effect estimate, its interval or its p-value sits in a column of
+    # its own, so only arm-level values must sit under their arm; the
+    # outcome must be the row label, unless no row of the table names it
     ctx <- function(h) cell_context(cl, cl$cell_id[h])
     want <- c(outcome = g("outcome"), arm = g("arm"))
+    has <- function(v, txt) grepl(squash(tolower(v)), squash(tolower(txt)), fixed = TRUE)
+    labels <- cl$text[cl$col == 1L & !cl$is_header]
+    arm_level <- !g("statistic") %in% c("estimate", "ci_lower", "ci_upper", "p_value")
     fits <- function(h) {
       z <- ctx(h)
-      ok_o <- is.na(want[["outcome"]]) || grepl(squash(tolower(want[["outcome"]])), squash(tolower(z$row)), fixed = TRUE)
-      ok_a <- is.na(want[["arm"]]) || grepl(squash(tolower(want[["arm"]])), squash(tolower(z$col)), fixed = TRUE)
+      ok_o <- is.na(want[["outcome"]]) || has(want[["outcome"]], z$row) || !any(has(want[["outcome"]], labels))
+      ok_a <- is.na(want[["arm"]]) || !arm_level || has(want[["arm"]], z$col)
       ok_o && ok_a
     }
     if (length(hit) && any(!is.na(want))) {
@@ -417,7 +423,7 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
       }
       cid <- cl$cell_id[hit[1]]
       z <- ctx(hit[1])
-      src_text <- paste(z$row, z$col, sc_table_caption(doc, bid) %||% "", cl$text[hit[1]])
+      src_text <- paste(z$row, paste(cl$text[cl$is_header], collapse = " "), sc_table_caption(doc, bid) %||% "", cl$text[hit[1]])
       ev <- add_evidence(col, cell_id = cid, char_start = 1L, char_end = nchar(cl$text[hit[1]]),
                          value_text = cl$text[hit[1]], method = "llm_quote")
     }
@@ -441,12 +447,11 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
       # the value must be one of the complete numbers written in the quote,
       # and one whose role there fits the field: the 95 of "95% CI" is a
       # confidence level, never a count or an estimate
-      m <- gregexpr(num_re, quote, perl = TRUE)[[1]]
-      toks <- regmatches(quote, list(m))[[1]]
+      nr <- number_roles(quote)
       vn <- as_num(value)
-      same <- which(!is.na(as_num(toks)) & abs(as_num(toks) - vn) < 1e-12 * max(1, abs(vn)))
-      roles <- vapply(same, function(k) number_role(quote, m[k], attr(m, "match.length")[k]), "")
-      fits <- roles %in% c("plain", g("statistic") %|NA|% "plain") | (roles == "ci_level" & field %in% "ci_level")
+      same <- which(!is.na(as_num(nr$token)) & abs(as_num(nr$token) - vn) < 1e-12 * max(1, abs(vn)))
+      roles <- nr$role[same]
+      fits <- vapply(roles, role_fits, logical(1), stat = g("statistic"), field = field)
       if (is.na(vn) || !length(same)) {
         status <- "unsupported"
         notes <- c(notes, "numeric value is not a number written in the quote")
@@ -531,8 +536,53 @@ verify_item <- function(col, it, schema, sent_ids, obs_map = new.env(parent = em
              notes = if (length(notes)) paste(notes, collapse = "; ") else NA_character_)
 }
 
-# The role of a number in its text: a confidence level ("95% CI"), a
-# p-value ("p = 0.04"), or a plain value.
+# The role of each number of a text: a confidence level ("95% CI"), a
+# p-value ("p = 0.04"), the lower and upper bound of an interval
+# ("ci_lower", "iqr_upper", or "bound_lower" without a label), the
+# estimate printed before the bracket that holds the interval, or plain.
+number_roles <- function(text) {
+  m <- gregexpr(num_re, text, perl = TRUE)[[1]]
+  if (m[1] < 0) return(list(token = character(), role = character()))
+  len <- attr(m, "match.length")
+  st <- as.integer(m)
+  en <- st + len - 1L
+  tok <- substring(text, st, en)
+  role <- vapply(seq_along(st), function(k) number_role(text, st[k], len[k]), "")
+  for (k in seq_len(length(st) - 1L)) {
+    if (role[k] != "plain" || role[k + 1L] != "plain") next
+    between <- substr(text, en[k] + 1L, st[k + 1L] - 1L)
+    if (!grepl("^\\s*(?:to|\u2013|\u2014|-|,|;)\\s*$", between, perl = TRUE)) next
+    before <- substr(text, max(1L, st[k] - 40L), st[k] - 1L)
+    lab <- regmatches(before, regexpr("(?i)(?:\\(|\\[|\\bCI\\b|\\bCrI\\b|\\bPI\\b|interval|\\bIQR\\b|interquartile|\\brange\\b)[^()\\[\\]]*$", before, perl = TRUE))
+    if (!length(lab)) next
+    kind <- if (grepl("(?i)IQR|interquartile", lab, perl = TRUE)) "iqr" else
+      if (grepl("(?i)\\brange\\b", lab, perl = TRUE)) "bound" else
+        if (grepl("(?i)CI|CrI|PI|interval", lab, perl = TRUE)) "ci" else "bound"
+    role[k] <- paste0(kind, "_lower")
+    role[k + 1L] <- paste0(kind, "_upper")
+    br <- gregexpr("[([]", substr(text, 1L, st[k] - 1L))[[1]]
+    op <- max(c(0L, br))
+    if (op > 0L) {
+      e <- which(en < op & role == "plain" & grepl("^[\\s%]*$", substring(text, en + 1L, op - 1L), perl = TRUE))
+      if (length(e)) role[max(e)] <- "estimate"
+    }
+  }
+  list(token = tok, role = role)
+}
+
+# Whether a number with this role in its quote can be the value of the
+# field and statistic the model named.
+role_fits <- function(role, stat, field) {
+  if (role == "plain") return(TRUE)
+  if (role == "ci_level") return(identical(field, "ci_level"))
+  if (is.na(stat)) return(FALSE)
+  if (role == "p_value") return(stat == "p_value")
+  if (role == "estimate") return(!stat %in% c("ci_lower", "ci_upper", "iqr_lower", "iqr_upper", "p_value"))
+  side <- sub("^.*_", "", role)
+  kind <- sub("_.*$", "", role)
+  if (kind %in% c("ci", "iqr")) stat == role else endsWith(stat, paste0("_", side))
+}
+
 number_role <- function(text, start, len) {
   after <- substr(text, start + len, start + len + 25L)
   before <- substr(text, max(1L, start - 12L), start - 1L)

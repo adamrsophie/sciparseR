@@ -49,12 +49,27 @@ The columns that matter most:
 * `field`, `value`, `value_num`, `unit`: what was found. `value` is the
   text exactly as printed; `value_num` its numeric reading.
 * `status`: `reported`, `missing` (the source marks it missing, for
-  example with a dash), `not_reported` (expected but absent), `ambiguous`
+  example with a dash), `not_reported` (expected but absent),
+  `not_assessed` (absent, but part of the text was never assessed because
+  a model answer could not be read), `ambiguous`
   (found, but its meaning is not stated), `unsupported` (model output that
   could not be verified), `superseded` (replaced by a correction).
 * `data_origin`: `reported`, `derived`, `model_inferred`,
   `human_corrected`.
 * `evidence_id`: the link to the evidence row.
+* `interval_type` (`confidence`, `credible`, `prediction`) and `ci_level`
+  for interval bounds; `p_operator` (`=`, `<`, `>`, and so on) and
+  `test_role` (`effect`, `baseline_comparison`, `within_arm`, `interaction`, `trend`,
+  `heterogeneity`) for p-values, so a p for interaction is never read as
+  the p of the effect next to it.
+* `binding`: where the arm, comparator and outcome came from. A comparison
+  that the text or a column header states is used as written; without one,
+  an active arm against a single control is read as active versus control
+  and the binding says `comparison=control_arm_convention`.
+* `source_quality`: flags for values read from OCR, low confidence OCR, or
+  a table whose structure is uncertain. Such values go to the review queue.
+* `inputs`, `formula` and `assumptions` on derived values, and
+  `supersedes` when a new derivation replaces an older one.
 
 ## Study design and methods
 

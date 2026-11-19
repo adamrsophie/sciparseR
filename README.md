@@ -69,7 +69,7 @@ sc_review_queue(x)
 ```
 
 Every record has a status (`reported`, `missing`, `not_reported`,
-`ambiguous`, `unsupported`) and a data origin (`reported`, `derived`,
+`not_assessed`, `ambiguous`, `unsupported`) and a data origin (`reported`, `derived`,
 `model_inferred`, `human_corrected`). A value after a plus-minus sign
 without a stated SD or SE stays `ambiguous`; an empty table cell is
 `not_reported`; a dash is `missing`. Corrections (`sc_correct()`) and

@@ -74,3 +74,28 @@ test_that("a population from the model is kept and checked", {
   it$population <- "smokers"
   expect_equal(stub(d, "numerical_results", it)$records$status, "ambiguous")
 })
+
+test_that("interval bounds and the estimate cannot stand in for each other", {
+  d <- llm_doc(paste0("<p>", hr_text, "</p>"))
+  bid <- d$blocks$block_id[1]
+  status <- function(v, s) stub(d, "numerical_results", data.frame(field = "result", value = v, quote = hr_text,
+                                                                    block_id = bid, statistic = s))$records$status
+  grid <- expand.grid(v = c("0.62", "0.41", "0.94"), s = c("estimate", "ci_lower", "ci_upper"), stringsAsFactors = FALSE)
+  got <- mapply(status, grid$v, grid$s)
+  right <- paste(grid$v, grid$s) %in% c("0.62 estimate", "0.41 ci_lower", "0.94 ci_upper")
+  expect_equal(unname(got == "reported"), right)
+  expect_equal(number_roles("median 5 (IQR 3-8)")$role, c("estimate", "iqr_lower", "iqr_upper"))
+})
+
+test_that("an effect column needs no arm in its header", {
+  d <- llm_doc(paste0('<table-wrap id="t1"><label>Table 2</label><table><thead><tr><th>Outcome</th><th>Drug A</th>',
+                      "<th>Placebo</th><th>HR (95% CI)</th></tr></thead><tbody><tr><td>Death</td><td>12</td><td>20</td>",
+                      "<td>0.60 (0.40 to 0.90)</td></tr></tbody></table></table-wrap>"))
+  tid <- d$tables$table_id[1]
+  hr <- data.frame(field = "result", statistic = "estimate", value = "0.60", quote = "0.60 (0.40 to 0.90)",
+                   block_id = tid, outcome = "Death", arm = "Drug A", comparator = "Placebo")
+  expect_equal(stub(d, "numerical_results", hr)$records$status, "reported")
+  ev <- data.frame(field = "result", statistic = "events", value = "12", quote = "12", block_id = tid,
+                   outcome = "Death", arm = "Placebo")
+  expect_equal(stub(d, "numerical_results", ev)$records$status, "unsupported")
+})
