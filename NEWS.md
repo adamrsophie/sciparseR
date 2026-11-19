@@ -80,3 +80,35 @@ First release.
   that the document reports with the result, or one you pass; the
   randomized arm size is used only with `allow_randomized_n = TRUE` and
   is noted in the record.
+
+## Accuracy safeguards
+
+* Each value keeps its interval type (confidence, credible, prediction),
+  p-value operator, test role (effect, baseline comparison, interaction,
+  trend, heterogeneity) and a `source_quality` flag for values read from
+  OCR, low confidence OCR or a table whose structure is uncertain. Dose
+  arms of one drug stay apart, and the comparison direction follows the
+  text or a column header; without either, an active arm against one
+  control is read as active versus control and labelled as a convention.
+* Negated design terms ("not randomized") are skipped; derivations record
+  their inputs and assumptions, ignore inputs that failed validation and
+  never use credible or prediction intervals; values that disagree only
+  by rounding are not conflicts.
+* Language model answers are accepted only when the number plays a role
+  in the quote that fits the field (the 95 of "95% CI" is a level), the
+  value fits the field type, a table value sits in the named row and
+  column, and the measure, interval level, unit, population and
+  adjustment agree with the passage. When an answer cannot be read,
+  absent fields are `not_assessed`.
+* `sc_evaluate_extraction()` scores accepted output (`reported`, not
+  invalidated) and reports `candidate_` metrics for all values; every
+  supplied context field is scored and an empty context never matches.
+  `sc_evaluate()` matches blocks one to one, uses area IoU for full boxes
+  (`_vertical` metrics for truth with only a vertical extent), and
+  computes TEDS and GriTS-Con as the PubTabNet and Table Transformer
+  reference implementations do.
+* PDF rotation is read from the page tree without rendering, pages whose
+  only text is a page number are queued for OCR, side by side tables and
+  figures keep their own captions, and JATS keeps structured abstracts,
+  floats groups and appendices. The batch cache key includes the native
+  library and OCR data versions.

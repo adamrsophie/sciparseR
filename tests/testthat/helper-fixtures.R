@@ -14,7 +14,7 @@ result_records <- function(text) {
   r[r$field == "result", , drop = FALSE]
 }
 
-layout_fixture <- function(name) test_path("fixtures", name)
+layout_fixture <- function(name) testthat::test_path("fixtures", name)
 jats_table <- function(header, rows, caption = "Outcomes") {
   paste0('<table-wrap id="t1"><label>Table 2</label><caption><p>', caption, '</p></caption><table><thead><tr>',
          paste0("<th>", header, "</th>", collapse = ""), "</tr></thead><tbody>",
