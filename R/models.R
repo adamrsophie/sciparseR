@@ -32,6 +32,9 @@
 #' @param registry Registry directory; defaults to the user cache
 #'   directory of the package.
 #' @param input Input array for `sc_onnx_infer()`.
+#' @param session A session from `sc_onnx_session()`. For many inferences,
+#'   open the session once and pass it here: the checksum is then verified
+#'   once and the model is loaded once, instead of on every call.
 #' @param ... Passed to `nativeORT::ort_session()`.
 #' @return `sc_models()` a data frame; `sc_onnx_status()` a list;
 #'   `sc_onnx_session()` a nativeORT session; `sc_onnx_infer()` the raw
@@ -135,7 +138,7 @@ sc_onnx_session <- function(name, registry = NULL, ...) {
 
 #' @rdname models
 #' @export
-sc_onnx_infer <- function(name, input, registry = NULL, ...) {
-  s <- sc_onnx_session(name, registry = registry, ...)
+sc_onnx_infer <- function(name, input, registry = NULL, session = NULL, ...) {
+  s <- session %||% sc_onnx_session(name, registry = registry, ...)
   nativeORT::ort_infer_raw(s, input)
 }

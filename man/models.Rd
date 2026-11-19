@@ -30,7 +30,7 @@ sc_onnx_status()
 
 sc_onnx_session(name, registry = NULL, ...)
 
-sc_onnx_infer(name, input, registry = NULL, ...)
+sc_onnx_infer(name, input, registry = NULL, session = NULL, ...)
 }
 \arguments{
 \item{name}{Model name.}
@@ -57,6 +57,10 @@ directory of the package.}
 \item{...}{Passed to \code{nativeORT::ort_session()}.}
 
 \item{input}{Input array for \code{sc_onnx_infer()}.}
+
+\item{session}{A session from \code{sc_onnx_session()}. For many inferences,
+open the session once and pass it here: the checksum is then verified
+once and the model is loaded once, instead of on every call.}
 }
 \value{
 \code{sc_models()} a data frame; \code{sc_onnx_status()} a list;

@@ -321,6 +321,7 @@ align_seq <- function(sc) {
 # covered position.
 grits_con <- function(a, b) {
   if (!length(a) || !length(b)) return(0)
+  if (identical(dim(a), dim(b)) && identical(normalize_text(a), normalize_text(b))) return(1)
   s <- lcs_sim(as.vector(a), as.vector(b))
   cell <- function(i, k, j, l) s[(k - 1L) * nrow(a) + i, (l - 1L) * nrow(b) + j]
   row_sc <- outer(seq_len(nrow(a)), seq_len(nrow(b)), Vectorize(function(i, j) {
@@ -425,6 +426,7 @@ tree_edit_distance <- function(t1, t2) {
 teds <- function(cells_a, cells_b) {
   t1 <- table_tree(cells_a)
   t2 <- table_tree(cells_b)
+  if (identical(t1, t2)) return(1)
   1 - tree_edit_distance(t1, t2) / max(1L, max(length(t1$label), length(t2$label)) - 1L)
 }
 
