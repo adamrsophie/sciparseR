@@ -45,7 +45,8 @@ reported.
 \item \code{"log_ratio"}: natural logarithm of a ratio estimate and its limits.
 \item \code{"se_log_ratio"}: standard error of the log ratio from a confidence
 interval, \code{(log(upper) - log(lower)) / (2 * qnorm(1 - (1 - level) / 2))}.
-Requires a stated confidence level, or \code{assume_level}.
+Requires a stated confidence level, or \code{assume_level}. Never derived
+from an interval marked credible or prediction.
 \item \code{"sd_from_se"}: \code{se * sqrt(n)}, only for dispersions labelled SE.
 \code{n} must be the number analyzed for that result. It is taken, in this
 order, from an \code{n} or denominator reported with the result, from \code{n},

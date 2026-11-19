@@ -13,7 +13,8 @@
 #' * `"log_ratio"`: natural logarithm of a ratio estimate and its limits.
 #' * `"se_log_ratio"`: standard error of the log ratio from a confidence
 #'   interval, `(log(upper) - log(lower)) / (2 * qnorm(1 - (1 - level) / 2))`.
-#'   Requires a stated confidence level, or `assume_level`.
+#'   Requires a stated confidence level, or `assume_level`. Never derived
+#'   from an interval marked credible or prediction.
 #' * `"sd_from_se"`: `se * sqrt(n)`, only for dispersions labelled SE.
 #'   `n` must be the number analyzed for that result. It is taken, in this
 #'   order, from an `n` or denominator reported with the result, from `n`,
@@ -97,6 +98,10 @@ sc_derive <- function(x, what = c("percent", "log_ratio", "se_log_ratio", "sd_fr
         lvl <- assume_level
         note <- paste0("confidence level not stated; ", assume_level, "% assumed by the analyst")
       }
+      # a credible or prediction interval is not a confidence interval: no
+      # standard error is read from it
+      itype <- c(lo$interval_type, hi$interval_type)
+      if (any(itype %in% c("credible", "prediction"))) lvl <- NA_real_
       if (!is.na(lvl) && lvl > 0 && lvl < 100 && isTRUE(lo$value_num > 0 && hi$value_num > lo$value_num)) {
         z <- stats::qnorm(1 - (1 - lvl / 100) / 2)
         add(base, "se_log", (log(hi$value_num) - log(lo$value_num)) / (2 * z), c(lo$record_id, hi$record_id),

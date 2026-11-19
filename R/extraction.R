@@ -172,6 +172,17 @@ sc_evidence <- function(x, record_id = NULL) {
 #' with its dispersion) into one row per observation and statistic, keeping
 #' the binding context.
 #'
+#' The long form keeps every record with its interval level and kind,
+#' p-value operator, test role, dispersion type, data origin and evidence.
+#' The wide form has one column per statistic; a p-value whose test is not
+#' the effect itself (interaction, trend, heterogeneity) gets its own
+#' column (`p_value_interaction`). It also keeps `p_operator`, `ci_level`,
+#' `interval_type`, the data origin of every statistic (`origins`, as
+#' `statistic:origin` pairs) and the record and evidence ids. Two live
+#' values of the same statistic in one observation cannot share a column:
+#' the wide form then stops with an error naming them, instead of keeping
+#' one silently.
+#'
 #' @param x An `sc_extraction`.
 #' @param wide If `TRUE`, one row per observation with one column per
 #'   statistic.
@@ -183,13 +194,23 @@ sc_evidence <- function(x, record_id = NULL) {
 #' @export
 sc_observations <- function(x, wide = FALSE) {
   if (!inherits(x, "sc_extraction")) abort("`x` must be an sc_extraction.")
-  r <- x$records[!is.na(x$records$observation_id) & x$records$status != "superseded", , drop = FALSE]
+  r <- x$records[!is.na(x$records$observation_id) & !x$records$status %in% c("superseded", "invalidated"), , drop = FALSE]
   keep <- c("observation_id", "record_id", "field", "outcome", "arm", "comparator", "timepoint",
             "analysis_set", "population", "effect_measure", "adjusted", "statistic", "value", "value_num", "unit",
-            "status", "data_origin", "binding", "evidence_id")
+            "ci_level", "interval_type", "p_operator", "test_role", "dispersion_type",
+            "status", "data_origin", "source_quality", "binding", "evidence_id")
   if (!wide) return(r[, keep, drop = FALSE])
   ctx <- c("observation_id", "field", "outcome", "arm", "comparator", "timepoint", "analysis_set",
            "population", "effect_measure", "adjusted", "unit", "binding")
+  # the wide column of each record
+  key <- ifelse(r$statistic %in% "p_value" & !is.na(r$test_role) & !r$test_role %in% "effect",
+                paste0("p_value_", r$test_role), r$statistic)
+  dup <- duplicated(paste(r$observation_id, key)) & !is.na(key)
+  if (any(dup)) {
+    bad <- unique(paste(r$observation_id[dup], key[dup]))
+    abort("Observations hold two values of the same statistic, which one wide column cannot show: ",
+          paste(bad, collapse = ", "), ". Use the long form, or correct or supersede one of them.")
+  }
   ids <- unique(r$observation_id)
   if (!length(ids)) {
     out <- r[0, ctx, drop = FALSE]
@@ -197,11 +218,22 @@ sc_observations <- function(x, wide = FALSE) {
     return(out)
   }
   rows <- lapply(ids, function(o) {
-    ro <- r[r$observation_id == o, , drop = FALSE]
+    k <- which(r$observation_id == o)
+    ro <- r[k, , drop = FALSE]
     base <- ro[1, ctx, drop = FALSE]
     base$unit <- ro$unit[!is.na(ro$unit) & ro$unit != "%"][1] %|NA|% ro$unit[1]
     base$status <- paste(unique(ro$status), collapse = ",")
-    for (k in seq_len(nrow(ro))) base[[ro$statistic[k]]] <- ro$value_num[k]
+    pick <- function(v) {
+      v <- v[!is.na(v)]
+      if (length(v)) v[1] else NA
+    }
+    base$ci_level <- pick(ro$ci_level)
+    base$interval_type <- pick(ro$interval_type)
+    base$p_operator <- pick(ro$p_operator[ro$statistic %in% "p_value" & ro$test_role %in% c(NA, "effect")])
+    base$origins <- paste(paste0(key[k], ":", ro$data_origin), collapse = ";")
+    base$record_ids <- paste(ro$record_id, collapse = ";")
+    base$evidence_ids <- paste(ro$evidence_id[!is.na(ro$evidence_id)], collapse = ";")
+    for (j in seq_along(k)) base[[key[k[j]]]] <- ro$value_num[j]
     base
   })
   all_cols <- unique(unlist(lapply(rows, names)))

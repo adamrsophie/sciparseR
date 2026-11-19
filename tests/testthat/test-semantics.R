@@ -93,3 +93,49 @@ test_that("a comparison named in a table is kept in its direction", {
   f <- est(c("Outcome", "Drug A", "Drug B", "Odds ratio, Drug B vs Drug A (95% CI)"), m = m2)
   expect_equal(c(f$arm, f$comparator), c("Drug B", "Drug A"))
 })
+
+test_that("p-values keep their test, operator and interval kind", {
+  x <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.80 (95% CI 0.60 to 1.10); the interaction test had p = 0.02."), "numerical_results")
+  r <- x$records
+  p <- r[r$statistic %in% "p_value", ]
+  expect_equal(p$test_role, "interaction")
+  expect_false(p$observation_id %in% r$observation_id[r$statistic %in% "estimate"])
+  w <- sc_observations(x, wide = TRUE)
+  expect_false("p_value" %in% names(w))
+  expect_equal(w[["p_value_interaction"]][2], 0.02)
+  # the test of the estimate itself stays with it, operator and level kept
+  x2 <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.50 (99% CI 0.20 to 0.80; p &lt; 0.001)."), "numerical_results")
+  w2 <- sc_observations(x2, wide = TRUE)
+  expect_equal(nrow(w2), 1L)
+  expect_equal(c(w2$p_operator, w2$interval_type), c("<", "confidence"))
+  expect_equal(w2$ci_level, 99)
+  expect_match(w2$origins, "estimate:reported")
+  expect_true(all(c("test_role", "p_operator", "ci_level", "interval_type") %in% names(sc_observations(x2))))
+  # credible intervals are not confidence intervals
+  x3 <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.70 (95% credible interval 0.40 to 0.95)."), "numerical_results")
+  expect_equal(unique(na.omit(x3$records$interval_type)), "credible")
+  # a table with a main and an interaction p-value
+  d <- jats_text("", extra = jats_table(c("Outcome", "Drug A", "Placebo", "Odds ratio (95% CI)", "P value", "P for interaction"),
+                                         list(c("Death, n (%)", "10 (10)", "20 (20)", "0.50 (0.30 to 0.80)", "0.01", "0.70"))))
+  w3 <- sc_observations(sc_extract(d, "numerical_results"), wide = TRUE)
+  eff <- w3[!is.na(w3$estimate), ]
+  expect_equal(eff$p_value, 0.01)
+  expect_equal(w3$p_value_interaction[!is.na(w3$p_value_interaction)], 0.70)
+})
+
+test_that("the wide view refuses two values of one statistic", {
+  x <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.50 (95% CI 0.20 to 0.80)."), "numerical_results")
+  extra <- x$records[x$records$statistic == "estimate", ]
+  extra$record_id <- "rec-extra"
+  extra$value_num <- 0.55
+  x$records <- rbind(x$records, extra)
+  expect_error(sc_observations(x, wide = TRUE), "two values of the same statistic")
+  expect_equal(sum(sc_observations(x)$statistic == "estimate"), 2L)
+})
+
+test_that("no standard error is read from a credible interval", {
+  x <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.70 (95% credible interval 0.40 to 0.95)."), "numerical_results")
+  expect_false("se_log" %in% sc_derive(x, "se_log_ratio")$records$statistic)
+  y <- sc_extract(jats_text("The hazard ratio for death with Drug A versus placebo was 0.70 (95% CI 0.40 to 0.95)."), "numerical_results")
+  expect_true("se_log" %in% sc_derive(y, "se_log_ratio")$records$statistic)
+})

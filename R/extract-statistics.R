@@ -214,6 +214,41 @@ explicit_comparison <- function(text, arms) {
   list(arm = a, comparator = b)
 }
 
+# Kind of an interval from its label: confidence, credible or prediction.
+interval_kind <- function(x) {
+  if (grepl("(?i)\\bCrI\\b|credib|posterior|HPD|highest (?:posterior )?density", x, perl = TRUE)) return("credible")
+  if (grepl("(?i)\\bPI\\b|prediction interval", x, perl = TRUE)) return("prediction")
+  if (grepl("(?i)\\bCI\\b|confidence", x, perl = TRUE)) return("confidence")
+  NA_character_
+}
+
+# Which test a p-value belongs to, from the words before it.
+test_role_of <- function(x, default = NA_character_) {
+  if (grepl("(?i)interaction", x, perl = TRUE)) return("interaction")
+  if (grepl("(?i)heterogeneity|\\bI2\\b|I\u00b2", x, perl = TRUE)) return("heterogeneity")
+  if (grepl("(?i)\\btrend\\b", x, perl = TRUE)) return("trend")
+  if (grepl("(?i)within[- ](?:group|arm)|change from baseline within", x, perl = TRUE)) return("within_arm")
+  default
+}
+
+# The text between an estimate and a p-value: the p-value is the test of
+# that estimate unless another test is named in between, or a new clause
+# starts after a semicolon outside parentheses ("0.80 (95% CI ...); the
+# rate was 12% at p = 0.04"). "(HR 0.62, 95% CI 0.41 to 0.94; P = 0.02)"
+# keeps its p-value.
+p_belongs_to_estimate <- function(between) {
+  if (!is.na(test_role_of(between))) return(FALSE)
+  ch <- strsplit(between, "")[[1]]
+  depth <- 0L
+  last_cut <- 0L
+  for (k in seq_along(ch)) {
+    if (ch[k] %in% c("(", "[")) depth <- depth + 1L
+    if (ch[k] %in% c(")", "]")) depth <- max(0L, depth - 1L)
+    if (depth == 0L && ch[k] == ";") last_cut <- k
+  }
+  last_cut == 0L || !grepl("[A-Za-z0-9]", substring(between, last_cut + 1L))
+}
+
 # SD or SE label of one plus-minus pair: written right after the pair,
 # else in its clause, else in the sentence when only one label is used.
 dispersion_label <- function(after, clause, st) {
@@ -287,6 +322,10 @@ rule_text_statistics <- function(col, units, arms) {
           cm <- regexpr(ci_re, rest, perl = TRUE)
           has_ci <- cm > 0 && grepl("\\bCI\\b|\\bCrI\\b|(?i:confidence interval|credible interval)|^\\s*[(,;]\\s*(?:[0-9]{2}%\\s*)?[-+\u2212]?[0-9.]", substr(rest, 1, attr(cm, "match.length")), perl = TRUE)
           pm <- regexpr(p_re, rest, perl = TRUE)
+          # a p-value belongs to this estimate only inside its own clause and
+          # when no other test is named before it ("; the interaction test
+          # had p = 0.02" is another test)
+          if (pm > 0 && !p_belongs_to_estimate(substr(rest, 1L, pm - 1L))) pm <- -1L
           iter <- iter + 1L
           # a number far from the measure name ("hazard ratios were similar
           # in an analysis of 118 patients"), a second estimate, or one after
@@ -333,17 +372,20 @@ rule_text_statistics <- function(col, units, arms) {
             lo <- substr(rest, cs[2], cs[2] + cl[2] - 1L)
             hi <- substr(rest, cs[3], cs[3] + cl[3] - 1L)
             common$ci_level <- lvl
+            common$interval_type <- interval_kind(substr(rest, cm, cm + attr(cm, "match.length") - 1L))
             do.call(add_record, c(list(col, "result", lo, statistic = "ci_lower", value_num = as_num(lo),
                                        evidence_id = ev_at(rest_off + cs[2] - 1L, cl[2])), common))
             do.call(add_record, c(list(col, "result", hi, statistic = "ci_upper", value_num = as_num(hi),
                                        evidence_id = ev_at(rest_off + cs[3] - 1L, cl[3])), common))
             if (is.na(lvl)) col$records[[length(col$records)]]$notes <- "confidence level not stated"
+            common$interval_type <- NULL
           }
           if (pm > 0) {
             cs <- attr(pm, "capture.start")
             cl <- attr(pm, "capture.length")
             pv <- substr(rest, cs[2], cs[2] + cl[2] - 1L)
             common$p_operator <- substr(rest, cs[1], cs[1] + cl[1] - 1L)
+            common$test_role <- "effect"
             do.call(add_record, c(list(col, "result", pv, statistic = "p_value", value_num = as_num(pv),
                                        evidence_id = ev_at(rest_off + cs[2] - 1L, cl[2])), common))
             claimed <- c(claimed, rest_off + pm - 1L)
@@ -442,6 +484,7 @@ rule_text_statistics <- function(col, units, arms) {
           cx <- value_context(st, pall[j], clauses, outcome, arms)
           add_record(col, "result", pv, statistic = "p_value", value_num = as_num(pv),
                      p_operator = substr(st, cs[j, 1], cs[j, 1] + cl[j, 1] - 1L),
+                     test_role = test_role_of(substr(st, max(1L, pall[j] - 60L), pall[j] - 1L)),
                      outcome = cx$outcome, timepoint = cx$timepoint, analysis_set = cx$analysis_set, population = cx$population,
                      binding = paste(c(cx$bind, "comparison=unbound"), collapse = "; "),
                      observation_id = next_observation(col), evidence_id = ev_at(cs[j, 2], cl[j, 2]),
@@ -494,7 +537,10 @@ column_role <- function(header, arms) {
                 adjusted = adjusted_status(header, substr(last, ms$start[1], ms$start[1] + ms$length[1] - 1L)),
                 timepoint = header_timepoint(parts)))
   }
-  if (grepl("(?i)^p(\\s*value)?\\*?$|^p-value|^p for", last, perl = TRUE)) return(list(role = "p", timepoint = header_timepoint(parts)))
+  if (grepl("(?i)^p(\\s*value)?\\*?$|^p-value|^p for|^p\\s*\\(|interaction|heterogeneity|trend", last, perl = TRUE) &&
+      grepl("(?i)\\bp\\b|p-value|p value", last, perl = TRUE)) {
+    return(list(role = "p", test_role = test_role_of(last, default = NA_character_), timepoint = header_timepoint(parts)))
+  }
   # "Treatment difference (95% CI)": an effect whose measure is not named
   if (grepl("(?i)\\bdifference\\b|\\bratio\\b", last, perl = TRUE)) {
     lvl <- regmatches(last, regexpr("[0-9]{2}(?=%\\s*(CI|confidence))", last, perl = TRUE))
@@ -646,7 +692,7 @@ rule_table_statistics <- function(col, doc, arms) {
       col_obs <- list()
       eff_cols <- which(vapply(roles, function(r) r$role == "effect", logical(1)))
       obs_for <- function(j) {
-        if (roles[[j]]$role == "p") {
+        if (roles[[j]]$role == "p" && is.na(roles[[j]]$test_role %||% NA_character_)) {
           left <- eff_cols[eff_cols < j]
           j <- if (length(left)) max(left) else if (length(eff_cols) == 1L) eff_cols else j
         }
@@ -674,7 +720,7 @@ rule_table_statistics <- function(col, doc, arms) {
         } else if (r$role %in% c("effect", "p")) {
           # the comparison named in the effect header, else in the caption,
           # else active versus control
-          eff_j <- if (r$role == "p") {
+          eff_j <- if (r$role == "p" && !is.na(r$test_role %||% NA_character_)) NA_integer_ else if (r$role == "p") {
             left <- eff_cols[eff_cols < cc$col]
             if (length(left)) max(left) else if (length(eff_cols) == 1L) eff_cols else NA_integer_
           } else cc$col
@@ -695,8 +741,21 @@ rule_table_statistics <- function(col, doc, arms) {
           if (r$role == "effect") {
             base$effect_measure <- r$measure
             base$ci_level <- r$ci_level
+            base$interval_type <- interval_kind(hdr[cc$col])
             base$adjusted <- r$adjusted
             bind <- c(bind, if (is.na(r$adjusted)) "adjustment=not_stated" else "adjustment=table_header")
+          }
+        }
+        if (r$role == "p") {
+          # a p for interaction, trend or heterogeneity is its own test; a
+          # plain p column is the test of the effect beside it, or a
+          # baseline comparison
+          base$test_role <- r$test_role %||% NA_character_
+          if (is.na(base$test_role)) base$test_role <- if (baseline) "baseline_comparison" else if (length(eff_cols)) "effect" else NA_character_
+          if (!is.na(r$test_role %||% NA_character_)) {
+            base$arm <- NA_character_
+            base$comparator <- NA_character_
+            bind <- sub("comparison=[a-z_]+", "comparison=not_applicable", bind)
           }
         }
         base$binding <- paste(bind, collapse = "; ")

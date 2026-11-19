@@ -164,7 +164,19 @@
               "null"
             ]
           },
+          "interval_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "p_operator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_role": {
             "type": [
               "string",
               "null"
@@ -206,6 +218,12 @@
               "null"
             ]
           },
+          "source_quality": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "inputs": {
             "type": [
               "string",
@@ -213,6 +231,12 @@
             ]
           },
           "formula": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assumptions": {
             "type": [
               "string",
               "null"
@@ -231,6 +255,12 @@
             ]
           },
           "reviewer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "corrected_at": {
             "type": [
               "string",
               "null"

@@ -21,6 +21,18 @@ confidence limits and p-value, events with their denominator, a mean
 with its dispersion) into one row per observation and statistic, keeping
 the binding context.
 }
+\details{
+The long form keeps every record with its interval level and kind,
+p-value operator, test role, dispersion type, data origin and evidence.
+The wide form has one column per statistic; a p-value whose test is not
+the effect itself (interaction, trend, heterogeneity) gets its own
+column (\code{p_value_interaction}). It also keeps \code{p_operator}, \code{ci_level},
+\code{interval_type}, the data origin of every statistic (\code{origins}, as
+\code{statistic:origin} pairs) and the record and evidence ids. Two live
+values of the same statistic in one observation cannot share a column:
+the wide form then stops with an error naming them, instead of keeping
+one silently.
+}
 \examples{
 doc <- sc_parse(system.file("extdata", "trial_tables.pdf", package = "sciparseR"))
 x <- sc_extract(doc, "numerical_results")
