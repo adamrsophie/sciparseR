@@ -411,7 +411,9 @@ record_status <- function(records, v) {
 #'
 #' Lists the records that need human attention, most important first:
 #' validation failures, conflicts, ambiguous or unsupported values,
-#' missing required fields and estimates without a bound context.
+#' missing required fields, estimates without a bound context, and values
+#' whose `source_quality` flags a weak source (`"ocr"`,
+#' `"ocr_low_confidence"`, `"table_possible"`).
 #'
 #' @param x An `sc_extraction`, validated or not (validation is run if
 #'   needed).
@@ -441,6 +443,14 @@ sc_review_queue <- function(x) {
                                                   priority = if (st$status[i] %in% c("unsupported", "inconsistent")) 1L else 3L,
                                                   reason = paste0("status ", st$status[i], if (!is.na(st$notes[i])) paste0(": ", st$notes[i]) else ""),
                                                   stringsAsFactors = FALSE)
+  }
+  # values read from a weak source: OCR, low OCR confidence, or a table
+  # that is only possible
+  sq <- r[!is.na(r$source_quality) & r$status %in% c("reported", "ambiguous"), , drop = FALSE]
+  for (i in seq_len(nrow(sq))) {
+    reasons[[length(reasons) + 1L]] <- data.frame(record_id = sq$record_id[i],
+                                                  priority = if (grepl("low_confidence|table_possible", sq$source_quality[i])) 2L else 3L,
+                                                  reason = paste0("source quality: ", sq$source_quality[i]), stringsAsFactors = FALSE)
   }
   if (!length(reasons)) {
     return(data.frame(priority = integer(), record_id = character(), field = character(), statistic = character(),

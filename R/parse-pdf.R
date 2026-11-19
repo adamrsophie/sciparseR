@@ -113,6 +113,14 @@ parse_pdf <- function(path, cfg, log, ocr_words = NULL) {
       if (!p %in% ocr_words$page) next
     } else {
       pages$image_only[p] <- FALSE
+      # a scanned page with a digital page number or running head: the
+      # text layer holds only marginal lines while the page carries ink, so
+      # the body is an image and needs OCR or review
+      body_lines <- if (is.null(ll)) 0L else sum(ll$page == p & is.na(ll$marginal))
+      if (!p %in% ocr_words$page && body_lines == 0L && isTRUE(pages$ink_ratio[p] > 0.002)) {
+        pages$ocr_status[p] <- "needed"
+        log$add("pdf", "marginal_text_layer_only", "The text layer holds only marginal text (such as a page number) while the page has ink; the body likely is an image and needs OCR.", p)
+      }
     }
     lp <- ll[ll$page == p, , drop = FALSE]
     wp <- wl[wl$page == p, , drop = FALSE]

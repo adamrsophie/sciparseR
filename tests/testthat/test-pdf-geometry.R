@@ -20,9 +20,10 @@ test_that("a square page with /Rotate 90 reads in order", {
 test_that("render = FALSE renders no page", {
   n <- 0L
   env <- environment()
-  trace("pdf_render_page", tracer = bquote(assign("n", get("n", envir = .(env)) + 1L, envir = .(env))),
-        where = asNamespace("pdftools"), print = FALSE)
-  on.exit(untrace("pdf_render_page", where = asNamespace("pdftools")))
+  quiet <- function(expr) suppressMessages(utils::capture.output(expr))
+  quiet(trace("pdf_render_page", tracer = bquote(assign("n", get("n", envir = .(env)) + 1L, envir = .(env))),
+              where = asNamespace("pdftools"), print = FALSE))
+  on.exit(quiet(untrace("pdf_render_page", where = asNamespace("pdftools"))))
   invisible(sc_parse(layout_fixture("upright.pdf"), config = nr))
   expect_equal(n, 0L)
   # the control: a render with figures does call it
@@ -52,4 +53,34 @@ test_that("the PDF abstract keeps every paragraph up to the next heading", {
                       page = rep(1L, 5), font_size = rep(10, 5), reading_order = 1:5), "blocks")
   md <- pdf_metadata(layout_fixture("upright.pdf"), b, 1L)
   expect_equal(md$abstract, "Background and objective. Results and conclusions.")
+})
+
+test_that("weak sources stay visible on the values read from them", {
+  d <- sc_parse(fixture("trial_tables.pdf"))
+  d$tables$status <- "possible"
+  d$tables$method <- "ocr_tesseract+aligned_segments"
+  d$cells$status <- "ocr_extracted"
+  d$spans$source <- "ocr_tesseract"
+  d$spans$confidence <- 1
+  x <- sc_extract(d, "numerical_results")
+  ev <- x$evidence$evidence_id[!is.na(x$evidence$cell_id)]
+  tt <- x$records[x$records$evidence_id %in% ev & x$records$status == "reported", ]
+  expect_true(all(grepl("table_possible", tt$source_quality)))
+  expect_true(all(grepl("ocr_low_confidence", tt$source_quality)))
+  q <- sc_review_queue(x)
+  expect_true(all(tt$record_id %in% q$record_id))
+  # a clean parse has no flags
+  clean <- sc_extract(sc_parse(fixture("trial_tables.pdf")), "numerical_results")
+  expect_true(all(is.na(clean$records$source_quality)))
+})
+
+test_that("a scanned body with a digital page number is flagged for OCR", {
+  d <- sc_parse(layout_fixture("scan_with_text_page_number.pdf"))
+  expect_equal(d$pages$ocr_status, "needed")
+  expect_true("marginal_text_layer_only" %in% d$warnings$code)
+  skip_if_not_installed("tesseract")
+  skip_on_cran()
+  o <- sc_parse(layout_fixture("scan_with_text_page_number.pdf"), config = sc_config(ocr = "auto"))
+  expect_equal(o$pages$ocr_status, "applied")
+  expect_match(sc_text(o), "240 patients")
 })

@@ -97,6 +97,9 @@ add_not_reported <- function(records, schema, doc, engine) {
 }
 
 new_extraction <- function(doc, schema, records, evidence, engine, llm = NULL) {
+  records <- as_entity(records, "records")
+  evidence <- as_entity(evidence, "evidence")
+  records$source_quality <- source_quality(doc, records, evidence)
   structure(list(
     schema_version = sc_schema_version,
     doc_id = doc$doc_id, sha256 = doc$source$sha256, source = doc$source$file_name,
@@ -108,9 +111,38 @@ new_extraction <- function(doc, schema, records, evidence, engine, llm = NULL) {
                   })),
     engine = engine, llm = llm, created_at = now_utc(),
     package_version = pkg_version("sciparseR"),
-    records = as_entity(records, "records"), evidence = as_entity(evidence, "evidence"),
+    records = records, evidence = evidence,
     validation = empty_entity("validation")),
     class = "sc_extraction")
+}
+
+# Weak points of the source behind each record: a table that is only a
+# possible table, words read by OCR, and OCR words of low confidence. The
+# record keeps its value; the flags send it to the review queue.
+source_quality <- function(doc, records, evidence, min_confidence = 60) {
+  out <- rep(NA_character_, nrow(records))
+  if (!nrow(records) || !nrow(evidence)) return(out)
+  ev <- evidence[match(records$evidence_id, evidence$evidence_id), , drop = FALSE]
+  sp <- doc$spans
+  ocr_sp <- if (nrow(sp)) sp[grepl("ocr", sp$source %|NA|% ""), , drop = FALSE] else sp
+  low_page <- if (nrow(ocr_sp)) unique(ocr_sp$page[!is.na(ocr_sp$confidence) & ocr_sp$confidence < min_confidence]) else integer()
+  low_block <- if (nrow(ocr_sp)) unique(ocr_sp$block_id[!is.na(ocr_sp$confidence) & ocr_sp$confidence < min_confidence]) else character()
+  for (i in which(!is.na(ev$evidence_id))) {
+    flags <- character()
+    if (!is.na(ev$cell_id[i]) && nrow(doc$cells)) {
+      ce <- doc$cells[match(ev$cell_id[i], doc$cells$cell_id), , drop = FALSE]
+      tb <- doc$tables[match(ce$table_id, doc$tables$table_id), , drop = FALSE]
+      if (nrow(tb) && !is.na(tb$status) && tb$status != "extracted") flags <- c(flags, paste0("table_", tb$status))
+      ocr <- grepl("^ocr", ce$status %|NA|% "") || grepl("ocr", tb$method %|NA|% "")
+      if (ocr) flags <- c(flags, "ocr")
+      if (ocr && ev$page[i] %in% low_page) flags <- c(flags, "ocr_low_confidence")
+    } else if (!is.na(ev$block_id[i])) {
+      if (ev$block_id[i] %in% ocr_sp$block_id) flags <- c(flags, "ocr")
+      if (ev$block_id[i] %in% low_block) flags <- c(flags, "ocr_low_confidence")
+    }
+    if (length(flags)) out[i] <- paste(unique(flags), collapse = ";")
+  }
+  out
 }
 
 #' @export
