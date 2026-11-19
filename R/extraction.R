@@ -227,8 +227,8 @@ sc_extract_methods <- function(doc, ...) sc_extract(doc, "trial_details", ...)
 sc_extract_outcomes <- function(doc, ...) {
   s <- sc_schema("trial_details")
   s$fields <- s$fields[c("primary_outcome", "secondary_outcomes", "assessment_times", "follow_up")]
-  s$name <- rep("outcomes", nrow(s))
-  s$builtin <- rep(TRUE, nrow(s))
+  s$name <- "outcomes"
+  s$builtin <- TRUE
   sc_extract(doc, s, ...)
 }
 

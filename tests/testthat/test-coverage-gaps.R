@@ -1,15 +1,3 @@
-jats_text <- function(text) {
-  f <- tempfile(fileext = ".xml")
-  writeLines(paste0("<article><body><sec><title>Methods</title><p>Patients were randomly assigned to ",
-                    "receive Drug A or placebo.</p></sec><sec><title>Results</title>",
-                    paste0("<p>", text, "</p>", collapse = ""), "</sec></body></article>"), f)
-  sc_parse(f)
-}
-result_records <- function(text) {
-  r <- sc_extract(jats_text(text), "numerical_results")$records
-  r[r$field == "result", , drop = FALSE]
-}
-
 test_that("upside-down pages are detected and parse like upright ones", {
   d <- sc_parse(fixture("rotated180.pdf"))
   up <- sc_parse(fixture("trial_tables.pdf"))

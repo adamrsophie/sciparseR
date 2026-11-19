@@ -253,7 +253,8 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
           sw <- sw[order(match(sw$segment, segs$segment[ix]), sw$x0), , drop = FALSE]
           raw <- paste(segs$text[ix], collapse = " ")
           sup <- sw$superscript
-          clean <- if (any(sup)) paste(sw$text[!sup], collapse = " ") else raw
+          sci <- if (is.null(sw$scientific)) rep(FALSE, nrow(sw)) else sw$scientific
+          clean <- if (any(sup) || any(sci)) join_cell_words(sw$text[!sup], sci[!sup]) else raw
           bb <- bbox_union(segs$x0[ix], segs$y0[ix], segs$x1[ix], segs$y1[ix])
           txt <- normalize_text(clean)
           cl[[length(cl) + 1L]] <- list(
@@ -350,4 +351,18 @@ header_row_spans <- function(cells, n_header) {
   }
   if (length(drop)) cells <- cells[-unique(drop), , drop = FALSE]
   cells[order(cells$row, cells$col), , drop = FALSE]
+}
+
+# Words of a cell joined with spaces; a scientific superscript is attached
+# to the word before it as a superscript ("10" raised "3" is "10\u00b3").
+join_cell_words <- function(text, scientific) {
+  out <- character()
+  for (k in seq_along(text)) {
+    if (scientific[k] && length(out)) {
+      out[length(out)] <- paste0(out[length(out)], script_text(text[k], sup_map, "^"))
+    } else {
+      out <- c(out, text[k])
+    }
+  }
+  paste(out, collapse = " ")
 }

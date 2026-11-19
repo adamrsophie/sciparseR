@@ -8,17 +8,93 @@ xtext <- function(node, xpath = NULL) {
   if (!nzchar(t)) NA_character_ else t
 }
 
-# Text of a node with one representation of each formula: the MathML
-# text when MathML is present, otherwise the TeX source; table footnote
+# Text of a node with one representation of each formula and the meaning
+# of inline markup kept: paragraphs, list items and line breaks inside the
+# node are separated by a space (two cell paragraphs "10" and "20" never
+# become "1020"); superscripts and subscripts that are not citation or
+# footnote links become Unicode superscript or subscript characters, or
+# "^(...)" and "_(...)" when no such character exists ("10<sup>3</sup>" is
+# "10\u00b3", not "103"); MathML is written with its structure ("(1)/(2)",
+# "x^(2)"); TeX is used only when no MathML is present. Table footnote
 # markers are removed when requested.
 node_text <- function(node, drop_fn_markers = FALSE) {
-  normalize_text(paste(xml2::xml_text(text_nodes(node, drop_fn_markers)), collapse = ""))
+  normalize_text(paste(serialize_items(node, drop_fn_markers)$text, collapse = ""))
 }
 
 text_nodes <- function(node, drop_fn_markers = FALSE) {
-  q <- ".//text()[not(ancestor::tex-math[parent::*/*[local-name()='math']])"
+  q <- ".//text()[not(ancestor::tex-math[parent::*/*[local-name()='math']]) and not(ancestor::*[local-name()='math'])"
   if (drop_fn_markers) q <- paste0(q, " and not(ancestor::xref[@ref-type='table-fn' or @ref-type='fn'])")
-  xml2::xml_find_all(node, paste0(q, "]"))
+  xml2::xml_find_all(node, paste0(q, "] | .//*[local-name()='math'][not(ancestor::*[local-name()='math'])]"))
+}
+
+sup_map <- c("0" = "\u2070", "1" = "\u00b9", "2" = "\u00b2", "3" = "\u00b3", "4" = "\u2074", "5" = "\u2075",
+             "6" = "\u2076", "7" = "\u2077", "8" = "\u2078", "9" = "\u2079", "+" = "\u207a", "-" = "\u207b",
+             "\u2212" = "\u207b", "=" = "\u207c", "(" = "\u207d", ")" = "\u207e", "n" = "\u207f", "i" = "\u2071")
+sub_map <- c("0" = "\u2080", "1" = "\u2081", "2" = "\u2082", "3" = "\u2083", "4" = "\u2084", "5" = "\u2085",
+             "6" = "\u2086", "7" = "\u2087", "8" = "\u2088", "9" = "\u2089", "+" = "\u208a", "-" = "\u208b",
+             "\u2212" = "\u208b", "=" = "\u208c", "(" = "\u208d", ")" = "\u208e")
+
+script_text <- function(x, map, mark) {
+  t <- trimws(x)
+  if (!nzchar(t)) return(x)
+  ch <- strsplit(t, "")[[1]]
+  if (all(ch %in% names(map))) return(paste(map[ch], collapse = ""))
+  paste0(mark, "(", t, ")")
+}
+
+mathml_text <- function(node) {
+  nm <- xml2::xml_name(node)
+  kids <- xml2::xml_children(node)
+  part <- function(k) {
+    t <- mathml_text(k)
+    if (length(xml2::xml_children(k)) || nchar(t) > 1L) paste0("(", t, ")") else t
+  }
+  if (nm %in% c("mi", "mn", "mo", "mtext", "ms")) return(normalize_text(xml2::xml_text(node)))
+  if (nm == "annotation" || nm == "annotation-xml") return("")
+  if (nm == "semantics" && length(kids)) return(mathml_text(kids[[1]]))
+  if (nm == "mfrac" && length(kids) == 2L) return(paste0(part(kids[[1]]), "/", part(kids[[2]])))
+  if (nm == "msup" && length(kids) == 2L) return(paste0(mathml_text(kids[[1]]), "^", part(kids[[2]])))
+  if (nm == "msub" && length(kids) == 2L) return(paste0(mathml_text(kids[[1]]), "_", part(kids[[2]])))
+  if (nm == "msubsup" && length(kids) == 3L) {
+    return(paste0(mathml_text(kids[[1]]), "_", part(kids[[2]]), "^", part(kids[[3]])))
+  }
+  if (nm == "msqrt") return(paste0("sqrt(", paste(vapply(kids, mathml_text, ""), collapse = ""), ")"))
+  if (nm == "mroot" && length(kids) == 2L) return(paste0("root(", mathml_text(kids[[2]]), ", ", mathml_text(kids[[1]]), ")"))
+  if (!length(kids)) return(normalize_text(xml2::xml_text(node)))
+  paste(vapply(kids, mathml_text, ""), collapse = "")
+}
+
+# The pieces of a node's text in document order, one per text node or
+# top-level MathML element, each already serialized and with a leading
+# space where a block boundary falls before it.
+serialize_items <- function(node, drop_fn_markers = FALSE) {
+  it <- text_nodes(node, drop_fn_markers)
+  if (!length(it)) return(list(items = it, text = character()))
+  is_math <- xml2::xml_type(it) == "element"
+  txt <- character(length(it))
+  for (k in seq_along(it)) {
+    if (is_math[k]) {
+      txt[k] <- paste0(" ", mathml_text(it[[k]]), " ")
+      next
+    }
+    t <- xml2::xml_text(it[[k]])
+    linked <- !inherits(xml2::xml_find_first(it[[k]], "ancestor::xref"), "xml_missing")
+    sc <- xml2::xml_find_first(it[[k]], "ancestor::*[self::sup or self::sub][1]")
+    if (!linked && !inherits(sc, "xml_missing")) {
+      t <- if (xml2::xml_name(sc) == "sup") script_text(t, sup_map, "^") else script_text(t, sub_map, "_")
+    }
+    txt[k] <- t
+  }
+  # block boundaries: a different paragraph, list item, title or label, or a
+  # line break between two pieces
+  blk <- xml2::xml_find_first(it, "ancestor-or-self::*[self::p or self::list-item or self::title or self::label or self::def or self::term][1]")
+  bp <- vapply(seq_along(blk), function(k) if (inherits(blk[[k]], "xml_missing")) "" else xml2::xml_path(blk[[k]]), "")
+  br <- xml2::xml_find_num(it, "count(preceding::break)")
+  if (length(it) > 1L) {
+    edge <- c(FALSE, bp[-1] != bp[-length(bp)] | br[-1] != br[-length(br)])
+    txt[edge] <- paste0(" ", txt[edge])
+  }
+  list(items = it, text = txt)
 }
 
 jats_root <- function(x) {
@@ -165,7 +241,7 @@ parse_jats <- function(path, cfg, log) {
       eid <- make_id("eq", NA, length(equations) + 1L)
       tex <- xtext(node, ".//tex-math")
       mm <- xml2::xml_find_first(node, ".//*[local-name()='math']")
-      mtxt <- if (inherits(mm, "xml_missing")) NA_character_ else normalize_text(xml2::xml_text(mm))
+      mtxt <- if (inherits(mm, "xml_missing")) NA_character_ else normalize_text(mathml_text(mm))
       inline_p <- length(xml2::xml_find_all(node, "ancestor::p")) > 0L
       bid <- if (inline_p) NA_character_ else add_block("equation", if (!is.na(mtxt)) mtxt else tex, node, owner_section(node))
       equations[[length(equations) + 1L]] <- list(
@@ -303,7 +379,7 @@ jats_table <- function(node, k, log) {
       out[[length(out) + 1L]] <- list(
         cell_id = sprintf("%s-r%03dc%03d", tid, r, col), table_id = tid, row = r, col = col,
         row_span = rs, col_span = cs, is_header = in_head,
-        text_raw = normalize_text(xml2::xml_text(cell)), text = txt,
+        text_raw = node_text(cell), text = txt,
         markers = collapse_ids(normalize_text(xml2::xml_text(mk))),
         missing_token = grepl(missing_token_regex, txt),
         status = if (!nzchar(txt)) "empty" else if (grepl(missing_token_regex, txt)) "missing_token" else "extracted",
@@ -394,12 +470,14 @@ jats_citations <- function(art, blocks, references) {
     if (!is.na(bi) && nzchar(mk)) {
       # offset from the text that precedes this xref in the paragraph, so a
       # number that also occurs earlier in the text is never picked
-      tn <- text_nodes(p)
-      inside <- vapply(tn, function(t) length(xml2::xml_find_all(t, "ancestor::xref")) > 0L &&
-                         identical(xml2::xml_path(xml2::xml_find_first(t, "ancestor::xref[1]")), xml2::xml_path(x)), logical(1))
+      si <- serialize_items(p)
+      tn <- si$items
+      inside <- vapply(seq_along(tn), function(k) xml2::xml_type(tn[[k]]) == "text" &&
+                         length(xml2::xml_find_all(tn[[k]], "ancestor::xref")) > 0L &&
+                         identical(xml2::xml_path(xml2::xml_find_first(tn[[k]], "ancestor::xref[1]")), xml2::xml_path(x)), logical(1))
       if (any(inside)) {
         k <- which(inside)[1]
-        pre <- paste(c(xml2::xml_text(tn[seq_len(k - 1L)]), xml2::xml_text(tn[inside])), collapse = "")
+        pre <- paste(c(si$text[seq_len(k - 1L)], si$text[inside]), collapse = "")
         cand <- nchar(normalize_text(pre)) - nchar(mk) + 1L
         if (cand >= 1L && identical(substr(blocks$text[bi], cand, cand + nchar(mk) - 1L), mk)) st <- cand
       }

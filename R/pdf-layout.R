@@ -72,6 +72,20 @@ build_lines <- function(w, cfg) {
     w$superscript[ix] <- !is.na(w$font_size[ix]) & w$font_size[ix] < 0.8 * fs &
       w$yc[ix] < yc - 0.15 * stats::median(w$h[ix])
   }
+  # a raised number that is a power of ten, a unit exponent or a charge is
+  # part of the value ("5 x 10" raised "3", "7 m" raised "2"), not a
+  # footnote or citation marker: it stays in the text as a superscript
+  w$scientific <- rep(FALSE, nrow(w))
+  for (sg in unique(seg)) {
+    ix <- which(seg == sg)
+    ix <- ix[order(w$x0[ix])]
+    for (k in which(w$superscript[ix])) {
+      if (k < 2L) next
+      w$scientific[ix[k]] <- scientific_superscript(w$text[ix[k]], w$text[ix[k - 1L]],
+                                                    if (k > 2L) w$text[ix[k - 2L]] else "")
+    }
+  }
+  w$superscript[w$scientific] <- FALSE
   lines <- lapply(split(seq_len(nrow(w)), w$segment), function(ix) {
     ix <- ix[order(w$x0[ix])]
     txt <- w$text[ix[1]]
@@ -80,6 +94,10 @@ build_lines <- function(w, cfg) {
         a <- ix[k - 1]
         b <- ix[k]
         gap <- w$x0[b] - w$x1[a]
+        if (w$scientific[b]) {
+          txt <- paste0(txt, script_text(w$text[b], sup_map, "^"))
+          next
+        }
         sep <- if (w$superscript[b]) "" else if (isTRUE(w$space[a]) || gap > 0.2 * w$h[a]) " " else ""
         txt <- paste0(txt, sep, w$text[b])
       }
@@ -99,6 +117,20 @@ build_lines <- function(w, cfg) {
   lines <- do.call(rbind, lines)
   rownames(lines) <- NULL
   list(words = w, lines = lines)
+}
+
+# Is a raised word a power, unit exponent or charge rather than a marker?
+# `prev` and `prev2` are the words before it on the line.
+scientific_superscript <- function(sup, prev, prev2) {
+  sup <- trimws(sup)
+  if (!grepl("^[-+\u2212]?[0-9]{1,3}[-+\u2212]?$", sup)) return(FALSE)
+  # a sign makes it an exponent or a charge, never a citation
+  if (grepl("[-+\u2212]", sup)) return(TRUE)
+  # power of ten: "x 10", "\u00d710", "\u00b710"
+  if (grepl("(^|[x\u00d7\u00b7])10$", prev) && (grepl("[x\u00d7\u00b7]", prev) || grepl("^[x\u00d7\u00b7]$", prev2))) return(TRUE)
+  # unit exponent after a number: "7 m", "3.2 kg/m", "120 cm"
+  unit <- "^(?:[a-z\u00b5\u03bc]{1,3}|[a-z\u00b5\u03bc]{1,3}/[a-z\u00b5\u03bc]{1,3})$"
+  grepl(unit, prev, perl = TRUE) && grepl("[0-9]$", prev2)
 }
 
 # Mark running headers, footers and page numbers using all pages.

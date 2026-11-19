@@ -2,16 +2,35 @@
 # labels, sentence splitting with offsets, evidence records and extraction
 # records.
 
-# A complete number: optional sign, thousands separators, decimals and an
-# exponent written as "1e-5", "1.2 x 10^-5" or "1.2 \u00d7 10\u22125". The
-# lookbehind stops matches that start inside another number or word.
-num_re <- paste0("(?<![0-9A-Za-z.])(?:[-+\u2212]?(?:(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?|\\.[0-9]+)",
-                 "(?:[eE][-+\u2212]?[0-9]+|\\s?[x\u00d7]\\s?10\\^?[-+\u2212]?[0-9]+)?)")
+# A complete number: optional sign, thousands separators, a decimal point
+# or a middle dot used as one ("0\u00b702"), and an exponent written as
+# "1e-5", "1.2 x 10^-5", "1.2 \u00d7 10\u22125" or with superscript
+# digits ("5\u00d710\u00b3"). The match must be the whole token: an integer
+# followed by a comma or middle dot and more digits that are not a
+# thousands group ("0,05", "12,5") is not matched at all, so a decimal
+# comma is never read as its integer prefix. The lookbehinds stop matches
+# that start inside another number or word.
+sup_digits <- "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"
+num_int <- "(?>[0-9]{1,3}(?:,[0-9]{3})+(?![0-9])|[0-9]+)"
+num_pow <- paste0("\\s?[x\u00d7\u00b7]\\s?10(?:\\^\\s?[-+\u2212]?[0-9]+|[\u207a\u207b]?[", sup_digits, "]+)|",
+                  "\\s?[x\u00d7]\\s?10[-+\u2212]?[0-9]+")
+# a comma after a decimal number ("0.41,0.94") separates two numbers
+num_after_comma <- paste0("(?:(?<![0-9],)|", paste0("(?<=[.\u00b7][0-9]{", 1:4, "},)", collapse = "|"), ")")
+num_re <- paste0("(?<![0-9A-Za-z.\u00b7])", num_after_comma, "(?:[-+\u2212]?",
+                 "(?:", num_int, "(?:[.\u00b7][0-9]+)?(?:", num_pow, ")",
+                 "|", num_int, "[.\u00b7][0-9]+(?![,][0-9]{3}(?![0-9]))(?:[eE][-+\u2212]?[0-9]+)?",
+                 "|", num_int, "(?![,.\u00b7]?[0-9])(?:[eE][-+\u2212]?[0-9]+)?",
+                 "|\\.[0-9]+(?:[eE][-+\u2212]?[0-9]+)?)",
+                 "(?![0-9", sup_digits, "\u207a\u207b]))")
 
 as_num <- function(x) {
   x <- gsub(",(?=[0-9]{3}\\b)", "", x, perl = TRUE)
-  x <- gsub("[\u2212\u2013]", "-", x)
-  x <- gsub("\\s?[x\u00d7]\\s?10\\^?", "e", x)
+  x <- gsub("[\u2212\u2013\u207b]", "-", x)
+  x <- gsub("\u207a", "+", x)
+  x <- chartr(paste0(sup_digits), "0123456789", x)
+  # the power of ten before the decimal mark, so "2\u00b710^3" is not 2.10
+  x <- gsub("\\s?[x\u00d7\u00b7]\\s?10\\^?\\s?(?=[-+]?[0-9]+$)", "e", x, perl = TRUE)
+  x <- gsub("\u00b7", ".", x)
   suppressWarnings(as.numeric(x))
 }
 
