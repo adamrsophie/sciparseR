@@ -302,18 +302,26 @@ ink_regions <- function(ink, words, rules, dpi = 72, cell_pt = 4,
   lab <- matrix(0L, gr, gc)
   boxes <- list()
   cur <- 0L
+  # breadth-first labeling with one preallocated queue and a running box
+  queue <- integer(gr * gc)
   for (start in which(grid)) {
     if (lab[start]) next
     cur <- cur + 1L
-    queue <- start
     lab[start] <- cur
-    members <- integer()
-    while (length(queue)) {
-      p <- queue[1]
-      queue <- queue[-1]
-      members <- c(members, p)
+    queue[1L] <- start
+    head <- 1L
+    tail <- 1L
+    r_lo <- c_lo <- .Machine$integer.max
+    r_hi <- c_hi <- 0L
+    while (head <= tail) {
+      p <- queue[head]
+      head <- head + 1L
       pr <- (p - 1L) %% gr + 1L
       pc <- (p - 1L) %/% gr + 1L
+      if (pr < r_lo) r_lo <- pr
+      if (pr > r_hi) r_hi <- pr
+      if (pc < c_lo) c_lo <- pc
+      if (pc > c_hi) c_hi <- pc
       for (dr in -1:1) for (dc in -1:1) {
         nr <- pr + dr
         nc <- pc + dc
@@ -321,14 +329,13 @@ ink_regions <- function(ink, words, rules, dpi = 72, cell_pt = 4,
         q <- (nc - 1L) * gr + nr
         if (grid[q] && !lab[q]) {
           lab[q] <- cur
-          queue <- c(queue, q)
+          tail <- tail + 1L
+          queue[tail] <- q
         }
       }
     }
-    pr <- (members - 1L) %% gr + 1L
-    pc <- (members - 1L) %/% gr + 1L
-    boxes[[cur]] <- c((min(pc) - 1) * step * scale, (min(pr) - 1) * step * scale,
-                      max(pc) * step * scale, max(pr) * step * scale)
+    boxes[[cur]] <- c((c_lo - 1) * step * scale, (r_lo - 1) * step * scale,
+                      c_hi * step * scale, r_hi * step * scale)
   }
   b <- do.call(rbind, boxes)
   out <- data.frame(x0 = b[, 1], y0 = b[, 2], x1 = b[, 3], y1 = b[, 4])
