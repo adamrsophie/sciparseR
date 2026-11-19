@@ -21,10 +21,14 @@ node_text <- function(node, drop_fn_markers = FALSE) {
   normalize_text(paste(serialize_items(node, drop_fn_markers)$text, collapse = ""))
 }
 
+# These queries name no namespace prefix, so they need no namespace map;
+# without one xml2 does not rebuild the map of the whole document per call.
+no_ns <- stats::setNames(character(), character())
+
 text_nodes <- function(node, drop_fn_markers = FALSE) {
   q <- ".//text()[not(ancestor::tex-math[parent::*/*[local-name()='math']]) and not(ancestor::*[local-name()='math'])"
   if (drop_fn_markers) q <- paste0(q, " and not(ancestor::xref[@ref-type='table-fn' or @ref-type='fn'])")
-  xml2::xml_find_all(node, paste0(q, "] | .//*[local-name()='math'][not(ancestor::*[local-name()='math'])]"))
+  xml2::xml_find_all(node, paste0(q, "] | .//*[local-name()='math'][not(ancestor::*[local-name()='math'])]"), ns = no_ns)
 }
 
 sup_map <- c("0" = "\u2070", "1" = "\u00b9", "2" = "\u00b2", "3" = "\u00b3", "4" = "\u2074", "5" = "\u2075",
@@ -71,25 +75,23 @@ serialize_items <- function(node, drop_fn_markers = FALSE) {
   it <- text_nodes(node, drop_fn_markers)
   if (!length(it)) return(list(items = it, text = character()))
   is_math <- xml2::xml_type(it) == "element"
-  txt <- character(length(it))
+  txt <- xml2::xml_text(it)
+  # ancestors looked up once for the whole node set, not per text node
+  linked <- !vapply(xml2::xml_find_first(it, "ancestor::xref", ns = no_ns), inherits, logical(1), "xml_missing")
+  sc <- xml2::xml_find_first(it, "ancestor::*[self::sup or self::sub][1]", ns = no_ns)
+  sc_name <- vapply(sc, function(z) if (inherits(z, "xml_missing")) NA_character_ else xml2::xml_name(z), "")
   for (k in seq_along(it)) {
     if (is_math[k]) {
       txt[k] <- paste0(" ", mathml_text(it[[k]]), " ")
-      next
+    } else if (!linked[k] && !is.na(sc_name[k])) {
+      txt[k] <- if (sc_name[k] == "sup") script_text(txt[k], sup_map, "^") else script_text(txt[k], sub_map, "_")
     }
-    t <- xml2::xml_text(it[[k]])
-    linked <- !inherits(xml2::xml_find_first(it[[k]], "ancestor::xref"), "xml_missing")
-    sc <- xml2::xml_find_first(it[[k]], "ancestor::*[self::sup or self::sub][1]")
-    if (!linked && !inherits(sc, "xml_missing")) {
-      t <- if (xml2::xml_name(sc) == "sup") script_text(t, sup_map, "^") else script_text(t, sub_map, "_")
-    }
-    txt[k] <- t
   }
   # block boundaries: a different paragraph, list item, title or label, or a
   # line break between two pieces
-  blk <- xml2::xml_find_first(it, "ancestor-or-self::*[self::p or self::list-item or self::title or self::label or self::def or self::term][1]")
+  blk <- xml2::xml_find_first(it, "ancestor-or-self::*[self::p or self::list-item or self::title or self::label or self::def or self::term][1]", ns = no_ns)
   bp <- vapply(seq_along(blk), function(k) if (inherits(blk[[k]], "xml_missing")) "" else xml2::xml_path(blk[[k]]), "")
-  br <- xml2::xml_find_num(it, "count(preceding::break)")
+  br <- xml2::xml_find_num(it, "count(preceding::break)", ns = no_ns)
   if (length(it) > 1L) {
     edge <- c(FALSE, bp[-1] != bp[-length(bp)] | br[-1] != br[-length(br)])
     txt[edge] <- paste0(" ", txt[edge])
@@ -283,21 +285,21 @@ parse_jats <- function(path, cfg, log) {
         xpath = xml2::xml_path(node))
     }
   }
-  blocks <- bind_entity(lapply(blocks, as.data.frame, stringsAsFactors = FALSE), "blocks")
-  sections <- bind_entity(lapply(sections, function(s) as.data.frame(s[!vapply(s, is.null, logical(1))], stringsAsFactors = FALSE)), "sections")
+  blocks <- bind_entity(blocks, "blocks")
+  sections <- bind_entity(sections, "sections")
   references <- jats_references(art)
   citations <- jats_citations(art, blocks, references)
   list(
     pages = empty_entity("pages"), spans = empty_entity("spans"), lines = empty_entity("lines"),
     blocks = blocks, sections = sections,
-    tables = bind_entity(lapply(tables, as.data.frame, stringsAsFactors = FALSE), "tables"),
+    tables = bind_entity(tables, "tables"),
     cells = bind_entity(cells, "cells"),
-    figures = bind_entity(lapply(figures, as.data.frame, stringsAsFactors = FALSE), "figures"),
-    equations = bind_entity(lapply(equations, as.data.frame, stringsAsFactors = FALSE), "equations"),
-    captions = bind_entity(lapply(captions, as.data.frame, stringsAsFactors = FALSE), "captions"),
+    figures = bind_entity(figures, "figures"),
+    equations = bind_entity(equations, "equations"),
+    captions = bind_entity(captions, "captions"),
     footnotes = bind_entity(c(footnotes, list(jats_document_footnotes(art))), "footnotes"),
     references = references, citations = citations,
-    supplementary = bind_entity(lapply(supp, as.data.frame, stringsAsFactors = FALSE), "supplementary"),
+    supplementary = bind_entity(supp, "supplementary"),
     metadata = meta)
 }
 
@@ -382,23 +384,23 @@ jats_table <- function(node, k, log) {
   lead <- TRUE
   for (r in seq_along(rows)) {
     tr <- rows[[r]]
-    tcs <- xml2::xml_find_all(tr, "./th|./td")
+    tcs <- xml2::xml_find_all(tr, "./th|./td", ns = no_ns)
     in_head <- if (has_thead) {
-      length(xml2::xml_find_all(tr, "ancestor::thead")) > 0L
+      length(xml2::xml_find_all(tr, "ancestor::thead", ns = no_ns)) > 0L
     } else {
       lead <- lead && length(tcs) > 0L && all(vapply(tcs, col_header, logical(1)))
       lead
     }
     if (in_head) n_header <- r
     col <- 1L
-    for (cell in xml2::xml_find_all(tr, "./th|./td")) {
+    for (cell in tcs) {
       while (isTRUE(occ[[paste(r, col)]])) col <- col + 1L
       rs <- suppressWarnings(as.integer(xml2::xml_attr(cell, "rowspan")))
       cs <- suppressWarnings(as.integer(xml2::xml_attr(cell, "colspan")))
       rs <- if (is.na(rs) || rs < 1L) 1L else rs
       cs <- if (is.na(cs) || cs < 1L) 1L else cs
       for (i in r:(r + rs - 1L)) for (j in col:(col + cs - 1L)) occ[[paste(i, j)]] <- TRUE
-      mk <- xml2::xml_find_all(cell, ".//xref[@ref-type='table-fn' or @ref-type='fn']")
+      mk <- xml2::xml_find_all(cell, ".//xref[@ref-type='table-fn' or @ref-type='fn']", ns = no_ns)
       txt <- node_text(cell, drop_fn_markers = TRUE)
       out[[length(out) + 1L]] <- list(
         cell_id = sprintf("%s-r%03dc%03d", tid, r, col), table_id = tid, row = r, col = col,
@@ -416,7 +418,7 @@ jats_table <- function(node, k, log) {
     log$add("jats", "table_without_cells", paste0("Table ", lab %||% tid, " has rows but no cells."), NA, tid)
     return(list(table = table, cells = empty_entity("cells"), footnotes = fns))
   }
-  cells <- bind_entity(lapply(out, as.data.frame, stringsAsFactors = FALSE), "cells")
+  cells <- bind_entity(out, "cells")
   keys <- do.call(rbind, strsplit(names(occ), " "))
   n_rows <- max(as.integer(keys[, 1]))
   n_cols <- max(as.integer(keys[, 2]))
