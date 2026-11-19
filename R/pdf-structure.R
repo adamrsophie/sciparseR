@@ -30,10 +30,11 @@ detect_figures_page <- function(lines, regions, table_units, used, page, cfg,
     method <- "caption_only"
     status <- "caption_only"
     if (nrow(regions)) {
-      above <- which(!taken & regions$y1 <= cp$y0 + 2 & cp$y0 - regions$y1 <= 40 &
-                       regions$x1 > cp$x0 - 20)
-      below <- which(!taken & regions$y0 >= cp$y1 - 2 & regions$y0 - cp$y1 <= 40 &
-                       regions$x1 > cp$x0 - 20)
+      # a caption owns ink in its own column: the region must overlap the
+      # caption horizontally, so side-by-side figures keep their captions
+      hov <- pmin(regions$x1, cp$x1) - pmax(regions$x0, cp$x0) > 0
+      above <- which(!taken & hov & regions$y1 <= cp$y0 + 2 & cp$y0 - regions$y1 <= 40)
+      below <- which(!taken & hov & regions$y0 >= cp$y1 - 2 & regions$y0 - cp$y1 <= 40)
       pick <- if (length(above)) above[which.max(regions$y1[above])] else if (length(below)) below[which.min(regions$y0[below])] else integer()
       if (length(pick)) {
         sel <- seq_len(nrow(regions)) == pick

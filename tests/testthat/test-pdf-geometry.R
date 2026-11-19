@@ -84,3 +84,16 @@ test_that("a scanned body with a digital page number is flagged for OCR", {
   expect_equal(o$pages$ocr_status, "applied")
   expect_match(sc_text(o), "240 patients")
 })
+
+test_that("side-by-side tables and figures keep their own captions", {
+  d <- sc_parse(layout_fixture("side_by_side_tables.pdf"))
+  expect_equal(d$tables$label, c("Table 1", "Table 2"))
+  expect_equal(d$tables$n_cols, c(2L, 2L))
+  expect_equal(sc_table_to_matrix(d, d$tables$table_id[1])[-1, 2], c("12", "3", "9"))
+  expect_equal(sc_table_to_matrix(d, d$tables$table_id[2])[-1, 2], c("36", "15", "21"))
+  expect_false("caption_without_table" %in% d$warnings$code)
+  f <- sc_figures(sc_parse(layout_fixture("side_by_side_figures.pdf")))
+  expect_equal(f$status, c("extracted", "extracted"))
+  expect_true(f$x1[f$label == "Figure 1"] < 300)
+  expect_true(f$x0[f$label == "Figure 2"] > 300)
+})

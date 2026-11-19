@@ -113,21 +113,30 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
   cap <- cap[order(cap$y0), , drop = FALSE]
   regions <- list()
   used_rows <- integer()
+  side_rows <- integer()
   for (ci in seq_len(nrow(cap))) {
+    # captions side by side on one band: each table runs from its caption
+    # to the next caption on the right, and the rows are shared
+    band <- which(abs(cap$y0 - cap$y0[ci]) <= max(cap$y1[ci] - cap$y0[ci], 4) & seq_len(nrow(cap)) != ci)
+    right <- cap$x0[band][cap$x0[band] > cap$x0[ci]]
+    side <- length(band) > 0L
+    x_lo <- if (side) cap$x0[ci] - 5 else -Inf
+    x_hi <- if (length(right)) min(right) - 2 else Inf
     below <- which(rs$y0 > cap$y1[ci] & !(seq_len(nrow(rs)) %in% used_rows))
     taken <- integer()
     if (length(below) && rs$y0[below[1]] - cap$y1[ci] <= 3 * max(rs$h[below[1]], 8)) {
-      taken <- walk_rows(rs, below[1], cap$x0[ci] - 5, Inf)
+      taken <- walk_rows(rs, below[1], cap$x0[ci] - 5, x_hi)
     }
     if (length(taken) >= 2L) {
-      regions[[length(regions) + 1L]] <- list(rows = taken, caption = cap$segment[ci])
-      used_rows <- c(used_rows, taken)
+      regions[[length(regions) + 1L]] <- list(rows = taken, caption = cap$segment[ci], x_lo = x_lo, x_hi = x_hi)
+      if (side) side_rows <- c(side_rows, taken) else used_rows <- c(used_rows, taken)
     } else if (!is.null(log)) {
       log$add("tables", "caption_without_table",
               paste0("Table caption found but no aligned rows below it: ", cap$text[ci]),
               page)
     }
   }
+  used_rows <- c(used_rows, side_rows)
   i <- 1L
   while (i <= nrow(rs)) {
     if (i %in% used_rows || !rs$tabular[i]) {
@@ -137,7 +146,7 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
     taken <- setdiff(walk_rows(rs, i, -Inf, Inf), used_rows)
     if (length(taken) >= cfg$min_table_rows &&
         stats::median(rs$n_seg[taken]) >= 2) {
-      regions[[length(regions) + 1L]] <- list(rows = taken, caption = NA_integer_)
+      regions[[length(regions) + 1L]] <- list(rows = taken, caption = NA_integer_, x_lo = -Inf, x_hi = Inf)
       used_rows <- c(used_rows, taken)
       i <- max(taken) + 1L
     } else {
@@ -150,7 +159,8 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
     rg <- regions[[k]]
     tid <- make_id("t", page, id_offset + k)
     rows_y <- rs[rg$rows, , drop = FALSE]
-    segs <- elig[elig$row %in% rows_y$row, , drop = FALSE]
+    in_x <- elig$x0 >= rg$x_lo & elig$x1 <= rg$x_hi
+    segs <- elig[elig$row %in% rows_y$row & in_x, , drop = FALSE]
     m <- column_intervals(segs)
     n_cols <- nrow(m)
     trow <- match(segs$row, rows_y$row)
@@ -280,7 +290,7 @@ detect_tables_page <- function(lines, words, rules, page, cfg, body_size,
     # footnotes directly below the table
     tab_y1 <- max(rows_y$y1)
     tab_font <- stats::median(segs$font_size)
-    below <- elig[elig$y0 > tab_y1 & elig$y0 - tab_y1 < 3 * stats::median(rows_y$h) &
+    below <- elig[elig$y0 > tab_y1 & elig$y0 - tab_y1 < 3 * stats::median(rows_y$h) & in_x &
                     !(elig$row %in% rs$row[used_rows]), , drop = FALSE]
     below <- below[order(below$y0), , drop = FALSE]
     fn <- list()
