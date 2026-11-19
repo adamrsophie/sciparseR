@@ -125,8 +125,8 @@ test_that("GriTS-Con and TEDS give the known values", {
 test_that("evaluation reports text, detection and table structure metrics", {
   ev <- sc_evaluate(sc_parse(fixture("trial_tables.pdf")), truth("trial_tables.pdf"))
   expect_equal(metric(ev, "character_error_rate"), 0)
-  expect_equal(metric(ev, "table_detection_recall"), 1)
-  expect_equal(metric(ev, "table_detection_precision"), 1)
+  expect_equal(metric(ev, "table_detection_recall_vertical"), 1)
+  expect_equal(metric(ev, "table_detection_precision_vertical"), 1)
   expect_equal(metric(ev, "table_grits_con"), 1)
   expect_equal(metric(ev, "table_teds"), 1)
 })
@@ -134,7 +134,10 @@ test_that("evaluation reports text, detection and table structure metrics", {
 test_that("extraction is scored against planted values", {
   x <- sc_extract(sc_parse(fixture("trial_tables.pdf")), "clinical_trial")
   e <- sc_evaluate_extraction(x, truth("trial_tables.pdf"))
-  expect_equal(metric(e, "value_recall"), 1)
+  # the plus-minus value without an SD or SE label stays ambiguous, so it is
+  # a candidate but not accepted output
+  expect_equal(metric(e, "value_recall"), 60 / 61)
+  expect_equal(metric(e, "candidate_value_recall"), 1)
   expect_equal(metric(e, "binding_accuracy"), 1)
   expect_gt(metric(e, "value_precision"), 0.9)
   expect_error(sc_evaluate_extraction(x, list()), "no `extraction`")

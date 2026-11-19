@@ -13,19 +13,30 @@ sc_evaluate_extraction(x, truth)
 }
 \value{
 A data frame with columns \code{metric}, \code{value} and \code{n}:
-\code{value_recall} (truth values found), \code{value_precision} (extracted
-values of the scored fields that are in the truth), \code{binding_accuracy}
-(found values whose every scored context field is right),
-\code{binding_field_accuracy} (share of scored context fields that are
-right), \code{evidence_page_accuracy} and \code{unsupported_rate}. The matching
-of each truth entry is in attribute \code{"matches"}.
+\code{value_recall} (truth values found among accepted values),
+\code{value_precision} (accepted values of the scored fields that are in
+the truth), \code{binding_accuracy} (found values whose every scored
+context field is right), \code{binding_field_accuracy} (share of scored
+context fields that are right), \code{evidence_page_accuracy},
+\code{unsupported_rate}, and \code{candidate_value_recall},
+\code{candidate_value_precision} and \code{candidate_binding_accuracy} over all
+extracted values. The matching of each truth entry is in attribute
+\code{"matches"} (accepted) and \code{"candidate_matches"}.
 }
 \description{
 Scores extracted values against the \code{extraction} list of a truth file:
 one entry per value with its field, statistic, number, source (\code{text} or
 \code{table}), page and the context that should be bound (outcome, arm,
-comparator, time point, analysis set, effect measure). Context fields
-left out of a truth entry are not scored.
+comparator, time point, analysis set, population, effect measure, unit,
+adjustment, interval level and type, p-value operator and test role).
+Context fields left out of a truth entry are not scored; an empty
+context never matches.
+}
+\details{
+The main metrics score the accepted output: values with status
+\code{reported} that validation has not invalidated. The \code{candidate_} metrics
+score every extracted value whatever its status, so they show what the
+engine found before review rather than what can be used.
 }
 \examples{
 f <- system.file("extdata", "trial_tables.pdf", package = "sciparseR")

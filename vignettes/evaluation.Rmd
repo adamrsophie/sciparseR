@@ -37,7 +37,10 @@ pdfs
 ## Measures
 
 * `block_recall`: share of truth blocks (paragraphs, headings, captions,
-  footnotes) found with normalized similarity above `threshold`.
+  footnotes) found with normalized similarity above `threshold`. Matching
+  is one to one in document order: a parsed block serves at most one
+  truth block, and candidates share a 30 character anchor (start, middle
+  or end) with the truth text.
 * `reading_order_tau` and `reading_order_pairs`: Kendall's tau between
   truth order and parsed order, and the share of block pairs in the
   correct order.
@@ -47,16 +50,24 @@ pdfs
   block counts in full.
 * `table_recall`, `table_structure` (rows and columns), `table_header_rows`,
   `table_cell_accuracy`, `table_spans` (row and column spans).
-* `table_detection_precision` and `table_detection_recall` at IoU 0.5 on
-  the same page. The fixture truth gives the top and bottom of each table,
-  so their IoU is on the vertical extent; a truth file with `x0` and `x1`
-  is scored on the full box.
+* `table_detection_precision` and `table_detection_recall` at area IoU 0.5
+  on the same page, for truth tables with a full box (`x0`, `x1`, `top`,
+  `bottom`). Truth tables with only `top` and `bottom` are scored on the
+  IoU of the vertical extent and reported as
+  `table_detection_precision_vertical` and `table_detection_recall_vertical`;
+  the bundled fixtures are of this kind.
 * `table_grits_con`: GriTS-Con (Smock et al. 2023) with the factored row
   and column alignment, on grids with spanned text in every covered
-  position.
+  position. The cell similarity follows the reference implementation in
+  Microsoft's Table Transformer: matching blocks of Python's
+  `difflib.SequenceMatcher`, reproduced exactly including its junk
+  heuristic, on text with whitespace normalized and case kept.
 * `table_teds`: TEDS (Zhong et al. 2020), one minus the tree edit
   distance (Zhang and Shasha) between the HTML-like trees of the two
-  tables, divided by the size of the larger tree.
+  tables, divided by the number of nodes below the table node of the
+  larger tree, as in the PubTabNet reference. Cell text keeps its case.
+  Inline formatting (bold, italic, sub- and superscripts) is not part of
+  the tree, so TEDS here equals the reference only for plain text cells.
 * Ratios of found to expected figures, equations and references, DOI
   recall, image-only page detection.
 
@@ -92,7 +103,12 @@ for this release.
 The truth file of `trial_tables.pdf` also lists the 61 values the fixture
 generator wrote into the text and tables, each with the context a careful
 reader binds to it. `sc_evaluate_extraction()` matches extracted values
-to them and scores the bindings:
+to them and scores the bindings. The main metrics count only accepted
+values (status `reported`, not invalidated); the `candidate_` metrics count
+every extracted value, so the two together show what review would remove.
+Every context field a truth entry gives is scored, including population,
+unit, adjustment, interval level and p-value operator, and an empty
+context never counts as right:
 
 ```{r}
 x <- sc_extract(sc_parse(file.path(dir, "trial_tables.pdf")), "clinical_trial")

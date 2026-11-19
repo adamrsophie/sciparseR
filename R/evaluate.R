@@ -35,7 +35,18 @@ sc_evaluate <- function(doc, truth, threshold = 0.9) {
     db <- db[-j, , drop = FALSE]
   }
   if (length(tb)) {
-    pos <- vapply(tb, function(b) best_match(b$text, db$text, threshold), integer(1))
+    # one-to-one: each parsed block matches at most one truth block, and
+    # among equal candidates the first one after the previous match wins
+    pos <- rep(NA_integer_, length(tb))
+    taken <- logical(nrow(db))
+    last <- 0L
+    for (k in seq_along(tb)) {
+      pos[k] <- best_match(tb[[k]]$text, db$text, threshold, taken, last)
+      if (!is.na(pos[k])) {
+        taken[pos[k]] <- TRUE
+        last <- pos[k]
+      }
+    }
     add("block_recall", mean(!is.na(pos)), length(tb))
     # character error rate over matched blocks; an unmatched truth block
     # counts as wholly wrong
@@ -123,27 +134,32 @@ sc_evaluate <- function(doc, truth, threshold = 0.9) {
     add("table_teds", mean(tdet$teds), nrow(tdet))
   }
   if (length(truth$tables)) {
-    # detection at IoU 0.5 on the same page; truth files without horizontal
-    # extents are scored on the vertical extent (top to bottom) only
+    # detection at IoU 0.5 on the same page: area IoU for truth tables with
+    # a full box, and the IoU of the vertical extent (top to bottom) for
+    # truth tables without x0 and x1, reported under its own name
     iou1 <- function(a0, a1, b0, b1) max(0, min(a1, b1) - max(a0, b0)) / (max(a1, b1) - min(a0, b0))
     det <- doc$tables[!is.na(doc$tables$y0), , drop = FALSE]
-    used <- logical(nrow(det))
-    hit <- 0L
-    for (t in truth$tables) {
-      if (is.null(t$top) || is.null(t$bottom)) next
-      io <- vapply(seq_len(nrow(det)), function(k) {
-        if (used[k] || det$page[k] != t$page) return(0)
-        v <- iou1(t$top, t$bottom, det$y0[k], det$y1[k])
-        if (!is.null(t$x0) && !is.null(t$x1)) v <- v * iou1(t$x0, t$x1, det$x0[k], det$x1[k])
-        v
-      }, numeric(1))
-      if (length(io) && max(io) >= 0.5) {
-        used[which.max(io)] <- TRUE
-        hit <- hit + 1L
+    boxed <- vapply(truth$tables, function(t) !is.null(t$x0) && !is.null(t$x1), logical(1))
+    for (full in c(TRUE, FALSE)) {
+      tt <- Filter(function(t) !is.null(t$top) && !is.null(t$bottom), truth$tables[boxed == full])
+      if (!length(tt)) next
+      used <- logical(nrow(det))
+      hit <- 0L
+      for (t in tt) {
+        io <- vapply(seq_len(nrow(det)), function(k) {
+          if (used[k] || det$page[k] != t$page) return(0)
+          if (full) bbox_iou(c(t$x0, t$top, t$x1, t$bottom), c(det$x0[k], det$y0[k], det$x1[k], det$y1[k]))
+          else iou1(t$top, t$bottom, det$y0[k], det$y1[k])
+        }, numeric(1))
+        if (length(io) && max(io) >= 0.5) {
+          used[which.max(io)] <- TRUE
+          hit <- hit + 1L
+        }
       }
+      sfx <- if (full) "" else "_vertical"
+      add(paste0("table_detection_precision", sfx), if (nrow(det)) hit / nrow(det) else NA_real_, nrow(det))
+      add(paste0("table_detection_recall", sfx), hit / length(tt), length(tt))
     }
-    add("table_detection_precision", if (nrow(det)) hit / nrow(det) else NA_real_, nrow(det))
-    add("table_detection_recall", hit / length(truth$tables), length(truth$tables))
   }
   for (ent in c("figures", "equations", "references")) {
     n_t <- length(truth[[ent]] %||% list())
@@ -169,32 +185,107 @@ norm_cmp <- function(x) {
   tolower(gsub("\\s+", " ", trimws(x)))
 }
 
-best_match <- function(t, cands, threshold) {
+best_match <- function(t, cands, threshold, taken = logical(length(cands)), after = 0L) {
   t <- norm_cmp(t)
   cn <- norm_cmp(cands)
-  exact <- which(cn == t)
-  if (length(exact)) return(exact[1])
-  # containment handles blocks that merge or split differently
-  cont <- which(nchar(cn) > 20 & (startsWith(cn, substr(t, 1, 40)) | startsWith(t, substr(cn, 1, 40))))
+  free <- !taken
+  pick <- function(ix) {
+    later <- ix[ix > after]
+    if (length(later)) later[1] else ix[1]
+  }
+  exact <- which(free & cn == t)
+  if (length(exact)) return(pick(exact))
+  # candidates share an anchor of 30 characters with the truth text: its
+  # start, middle or end, so an error at either end still finds the block
+  n <- nchar(t)
+  anchors <- unique(c(substr(t, 1, 30), substr(t, max(1, n %/% 2 - 15), n %/% 2 + 15), substr(t, max(1, n - 29), n)))
+  hit <- Reduce(`|`, lapply(anchors, function(a) grepl(a, cn, fixed = TRUE)))
+  rev_hit <- vapply(cn, function(z) nchar(z) > 20 && grepl(substr(z, 1, 30), t, fixed = TRUE), logical(1))
+  cont <- which(free & nchar(cn) > 20 & (hit | rev_hit))
   sims <- vapply(cont, function(i) 1 - utils::adist(t, cn[i]) / max(nchar(t), nchar(cn[i])), numeric(1))
-  if (length(sims) && max(sims) >= threshold) return(cont[which.max(sims)])
+  if (length(sims) && max(sims) >= threshold) return(unname(pick(cont[sims == max(sims)])))
   NA_integer_
 }
 
 # ---- table similarity metrics ----------------------------------------------
 
-# Content similarity of every cell of `a` with every cell of `b`:
-# 2 * LCS / (|a| + |b|), 1 for two empty cells (the GriTS-Con cell score).
+# Characters that two strings share in the matching blocks of Python's
+# difflib.SequenceMatcher (Ratcliff and Obershelp): the longest common
+# substring, earliest in `a` and then in `b`, then the same on both sides,
+# with the automatic junk heuristic for strings of 200 or more characters.
+# This is the similarity of the reference GriTS implementation.
+seqmatch_size <- function(a, b) {
+  a <- strsplit(a, "")[[1]]
+  b <- strsplit(b, "")[[1]]
+  nb <- length(b)
+  if (!length(a) || !nb) return(0L)
+  b2j <- split(seq_len(nb), b)
+  if (nb >= 200L) {
+    popular <- names(b2j)[lengths(b2j) > nb %/% 100L + 1L]
+    b2j[popular] <- NULL
+  }
+  longest <- function(alo, ahi, blo, bhi) {
+    besti <- alo
+    bestj <- blo
+    bestk <- 0L
+    j2len <- integer(nb + 1L)
+    for (i in seq.int(alo, length.out = max(0L, ahi - alo + 1L))) {
+      new <- integer(nb + 1L)
+      for (j in b2j[[a[i]]] %||% integer()) {
+        if (j < blo) next
+        if (j > bhi) break
+        k <- (if (j > 1L) j2len[j - 1L] else 0L) + 1L
+        new[j] <- k
+        if (k > bestk) {
+          besti <- i - k + 1L
+          bestj <- j - k + 1L
+          bestk <- k
+        }
+      }
+      j2len <- new
+    }
+    while (besti > alo && bestj > blo && a[besti - 1L] == b[bestj - 1L]) {
+      besti <- besti - 1L
+      bestj <- bestj - 1L
+      bestk <- bestk + 1L
+    }
+    while (besti + bestk <= ahi && bestj + bestk <= bhi && a[besti + bestk] == b[bestj + bestk]) bestk <- bestk + 1L
+    c(besti, bestj, bestk)
+  }
+  total <- 0L
+  queue <- list(c(1L, length(a), 1L, nb))
+  while (length(queue)) {
+    q <- queue[[1]]
+    queue <- queue[-1]
+    m <- longest(q[1], q[2], q[3], q[4])
+    if (m[3] == 0L) next
+    total <- total + m[3]
+    if (q[1] < m[1] && q[3] < m[2]) queue[[length(queue) + 1L]] <- c(q[1], m[1] - 1L, q[3], m[2] - 1L)
+    if (m[1] + m[3] <= q[2] && m[2] + m[3] <= q[4]) queue[[length(queue) + 1L]] <- c(m[1] + m[3], q[2], m[2] + m[3], q[4])
+  }
+  total
+}
+
+# Content similarity of every cell of `a` with every cell of `b`, as in the
+# reference GriTS-Con: 2 * matched / (|a| + |b|) on the cell text with
+# whitespace normalized and case kept, 1 for two empty cells. Similarities
+# are computed once per distinct pair of strings.
 lcs_sim <- function(a, b) {
-  a <- norm_cmp(a)
-  b <- norm_cmp(b)
-  d <- utils::adist(a, b, costs = list(ins = 1, del = 1, sub = 2))
-  la <- nchar(a)
-  lb <- nchar(b)
-  tot <- outer(la, lb, "+")
-  lcs <- (tot - d) / 2
-  s <- ifelse(tot == 0, 1, 2 * lcs / pmax(tot, 1))
-  matrix(s, length(a), length(b))
+  a <- normalize_text(a)
+  b <- normalize_text(b)
+  a[is.na(a)] <- ""
+  b[is.na(b)] <- ""
+  ua <- unique(a)
+  ub <- unique(b)
+  s <- outer(seq_along(ua), seq_along(ub), Vectorize(function(i, j) {
+    x <- ua[i]
+    y <- ub[j]
+    tot <- nchar(x) + nchar(y)
+    if (tot == 0L) return(1)
+    if (identical(x, y)) return(1)
+    2 * seqmatch_size(x, y) / tot
+  }))
+  matrix(s[match(a, ua), match(b, ub), drop = FALSE], length(a), length(b))
 }
 
 # Best order-preserving alignment of two sequences given a score matrix
@@ -266,7 +357,7 @@ table_tree <- function(cells) {
       rc <- sub[sub$row == r, , drop = FALSE]
       rc <- rc[order(rc$col), , drop = FALSE]
       tds <- vapply(seq_len(nrow(rc)), function(k) {
-        add(sprintf("td:%d:%d", rc$row_span[k], rc$col_span[k]), norm_cmp(rc$text[k]), integer())
+        add(sprintf("td:%d:%d", rc$row_span[k], rc$col_span[k]), normalize_text(rc$text[k]) %|NA|% "", integer())
       }, integer(1))
       rows <- c(rows, add("tr", "", tds))
     }
@@ -328,10 +419,13 @@ tree_edit_distance <- function(t1, t2) {
   td[n, m]
 }
 
+# TEDS as in the PubTabNet reference: the distance is divided by the number
+# of nodes below the table node of the larger tree, and cell text keeps its
+# case (whitespace is normalized). Inline formatting is not represented.
 teds <- function(cells_a, cells_b) {
   t1 <- table_tree(cells_a)
   t2 <- table_tree(cells_b)
-  1 - tree_edit_distance(t1, t2) / max(length(t1$label), length(t2$label))
+  1 - tree_edit_distance(t1, t2) / max(1L, max(length(t1$label), length(t2$label)) - 1L)
 }
 
 # Cells of a truth table: covered positions are left out and spans set.
@@ -376,18 +470,28 @@ fill_grid <- function(cells) {
 #' Scores extracted values against the `extraction` list of a truth file:
 #' one entry per value with its field, statistic, number, source (`text` or
 #' `table`), page and the context that should be bound (outcome, arm,
-#' comparator, time point, analysis set, effect measure). Context fields
-#' left out of a truth entry are not scored.
+#' comparator, time point, analysis set, population, effect measure, unit,
+#' adjustment, interval level and type, p-value operator and test role).
+#' Context fields left out of a truth entry are not scored; an empty
+#' context never matches.
+#'
+#' The main metrics score the accepted output: values with status
+#' `reported` that validation has not invalidated. The `candidate_` metrics
+#' score every extracted value whatever its status, so they show what the
+#' engine found before review rather than what can be used.
 #'
 #' @param x An `sc_extraction`.
 #' @param truth Path to a truth JSON file, or the parsed list.
 #' @return A data frame with columns `metric`, `value` and `n`:
-#'   `value_recall` (truth values found), `value_precision` (extracted
-#'   values of the scored fields that are in the truth), `binding_accuracy`
-#'   (found values whose every scored context field is right),
-#'   `binding_field_accuracy` (share of scored context fields that are
-#'   right), `evidence_page_accuracy` and `unsupported_rate`. The matching
-#'   of each truth entry is in attribute `"matches"`.
+#'   `value_recall` (truth values found among accepted values),
+#'   `value_precision` (accepted values of the scored fields that are in
+#'   the truth), `binding_accuracy` (found values whose every scored
+#'   context field is right), `binding_field_accuracy` (share of scored
+#'   context fields that are right), `evidence_page_accuracy`,
+#'   `unsupported_rate`, and `candidate_value_recall`,
+#'   `candidate_value_precision` and `candidate_binding_accuracy` over all
+#'   extracted values. The matching of each truth entry is in attribute
+#'   `"matches"` (accepted) and `"candidate_matches"`.
 #' @examples
 #' f <- system.file("extdata", "trial_tables.pdf", package = "sciparseR")
 #' x <- sc_extract(sc_parse(f), "clinical_trial")
@@ -406,16 +510,23 @@ sc_evaluate_extraction <- function(x, truth) {
   r$source <- ifelse(grepl("table", r$method), "table", "text")
   ev <- x$evidence
   r$page <- ev$page[match(r$evidence_id, ev$evidence_id)]
-  ctx <- c("outcome", "arm", "comparator", "timepoint", "analysis_set", "effect_measure")
+  ctx <- c("outcome", "arm", "comparator", "timepoint", "analysis_set", "population", "effect_measure",
+           "unit", "adjusted", "ci_level", "interval_type", "p_operator", "test_role")
   same <- function(k, a, b) {
-    if (is.na(b)) return(FALSE)
-    if (k == "outcome") {
-      a <- norm_cmp(a)
-      b <- norm_cmp(b)
-      return(grepl(a, b, fixed = TRUE) || grepl(b, a, fixed = TRUE))
-    }
-    tolower(a) == tolower(b)
+    if (is.null(a) || is.na(b)) return(FALSE)
+    if (k == "adjusted") return(isTRUE(as.logical(a) == as.logical(b)))
+    if (k == "ci_level") return(isTRUE(abs(as.numeric(a) - as.numeric(b)) < 1e-9))
+    a <- norm_cmp(a)
+    b <- norm_cmp(b)
+    # an empty context is never a match, also not as a substring
+    if (!nzchar(a) || !nzchar(b)) return(FALSE)
+    if (k == "outcome") return(grepl(a, b, fixed = TRUE) || grepl(b, a, fixed = TRUE))
+    a == b
   }
+  # accepted output: values whose status says they can be used as stated;
+  # candidates: every extracted value, whatever its status
+  accepted <- r$status == "reported" & !r$validation_status %in% "invalidated"
+  score <- function(r) {
   used <- logical(nrow(r))
   rows <- lapply(tr, function(t) {
     cand <- which(!used & r$field == t$field & r$statistic %in% t$statistic &
@@ -433,23 +544,32 @@ sc_evaluate_extraction <- function(x, truth) {
                record_id = r$record_id[k], n_context = length(keys), context_ok = as.integer(max(score)),
                page_ok = if (is.null(t$page)) NA else isTRUE(r$page[k] == t$page), stringsAsFactors = FALSE)
   })
-  m <- do.call(rbind, rows)
+  do.call(rbind, rows)
+  }
+  m <- score(r[accepted, , drop = FALSE])
+  mc <- score(r)
   fields <- unique(vapply(tr, function(t) t$field, ""))
-  scored <- r[r$field %in% fields & r$status %in% c("reported", "ambiguous", "inconsistent"), , drop = FALSE]
   f <- m[m$found, , drop = FALSE]
+  fc <- mc[mc$found, , drop = FALSE]
+  scored <- r[accepted & r$field %in% fields, , drop = FALSE]
+  scored_c <- r[r$field %in% fields, , drop = FALSE]
   all_r <- x$records[x$records$field %in% fields & !x$records$status %in% c("superseded", "not_reported"), , drop = FALSE]
+  prec <- function(sc, f) if (nrow(sc)) sum(sc$record_id %in% f$record_id) / nrow(sc) else NA_real_
+  bind <- function(f) if (nrow(f)) mean(f$context_ok == f$n_context) else NA_real_
   out <- data.frame(
     metric = c("value_recall", "value_precision", "binding_accuracy", "binding_field_accuracy",
-               "evidence_page_accuracy", "unsupported_rate"),
-    value = c(mean(m$found),
-              if (nrow(scored)) sum(scored$record_id %in% f$record_id) / nrow(scored) else NA_real_,
-              if (nrow(f)) mean(f$context_ok == f$n_context) else NA_real_,
+               "evidence_page_accuracy", "unsupported_rate",
+               "candidate_value_recall", "candidate_value_precision", "candidate_binding_accuracy"),
+    value = c(mean(m$found), prec(scored, f), bind(f),
               if (sum(f$n_context)) sum(f$context_ok) / sum(f$n_context) else NA_real_,
               if (any(!is.na(f$page_ok))) mean(f$page_ok, na.rm = TRUE) else NA_real_,
-              if (nrow(all_r)) mean(all_r$status == "unsupported") else NA_real_),
-    n = c(nrow(m), nrow(scored), nrow(f), sum(f$n_context), sum(!is.na(f$page_ok)), nrow(all_r)),
+              if (nrow(all_r)) mean(all_r$status == "unsupported") else NA_real_,
+              mean(mc$found), prec(scored_c, fc), bind(fc)),
+    n = c(nrow(m), nrow(scored), nrow(f), sum(f$n_context), sum(!is.na(f$page_ok)), nrow(all_r),
+          nrow(mc), nrow(scored_c), nrow(fc)),
     stringsAsFactors = FALSE)
   attr(out, "matches") <- m
+  attr(out, "candidate_matches") <- mc
   out
 }
 
